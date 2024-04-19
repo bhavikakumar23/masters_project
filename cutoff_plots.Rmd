@@ -1,0 +1,152 @@
+---
+title: "cutoff_plots"
+output: html_document
+date: "2023-05-05"
+---
+
+This script has saturation plot- number of transcripts with read lengths and the cutoffs plots with the cutoffs decided for insert len, del len and map len
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+})
+```
+
+Without nanocount
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep1.csv")
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep1.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep2.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep2.csv")
+```
+
+Finding common transcripts in all three datasets of replicate 1
+```{r warning=FALSE, message=FALSE}
+sample_h <- hdeg_rep1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads_h=n())
+
+sample_u <- udeg_rep1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads_u=n())
+
+sample_m <- mdeg_rep1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads_m=n())
+
+comm_3 <- merge(x=sample_u, y=sample_h, by="Transcript")
+
+comm_1 <- merge(x=sample_m, y=sample_h, by="Transcript")
+comm_2 <- merge(x=sample_u, y=comm_1, by="Transcript")
+```
+
+Distribution plots of number of reads in each condition
+```{r warning=FALSE, message=FALSE}
+a <- ggplot(comm_3, aes(x=nreads_u)) + geom_histogram(binwidth=1, fill="blue") + xlim(0,300) + ylim(0,3000) + labs(x="Number of Reads") + ggtitle("Undegraded") + theme_bw() 
+
+b <- ggplot(comm_2, aes(x=nreads_m)) + geom_histogram(binwidth=1, fill="blue") + labs(x="Number of Reads") + ggtitle("Mildly degraded- Rep 1") + theme_bw() + xlim(0,300) + ylim(0,3000)
+
+c <- ggplot(comm_3, aes(x=nreads_h)) + geom_histogram(binwidth=1, fill="blue") + labs(x="Number of Reads") + ggtitle("Heavy Degraded") + theme_bw() + xlim(0,300) + ylim(0,3000)
+```
+
+Arranging all the three plots in one frame
+```{r warning=FALSE, message=FALSE}
+plot <- ggarrange(a,c, ncol = 1, nrow = 2)
+
+annotate_figure(plot, top = text_grob("Number of Reads of Transcripts", color = "blue", face = "bold", size = 14))
+```
+
+Finding common transcripts in all three datasets of replicate 2
+```{r warning=FALSE, message=FALSE}
+sample_h <- hdeg_rep_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads_h=n())
+
+sample_u <- udeg_rep_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads_u=n())
+
+sample_m <- mdeg_rep_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads_m=n())
+
+comm_1 <- merge(x=sample_m, y=sample_h, by="Transcript")
+comm_2 <- merge(x=sample_u, y=comm_1, by="Transcript")
+```
+
+Distribution plots of number of reads in all three conditions
+```{r warning=FALSE, message=FALSE}
+a <- ggplot(comm_2, aes(x=nreads_u)) + geom_histogram(binwidth=1, fill="blue") + labs(x="Number of Reads") + ggtitle("Undegraded- Rep 2") + theme_bw() + xlim(0,100) + ylim(0,5000)
+
+b <- ggplot(comm_2, aes(x=nreads_m)) + geom_histogram(binwidth=1, fill="blue") + labs(x="Number of Reads") + ggtitle("Mildly degraded- Rep 2") + theme_bw() + xlim(0,100) + ylim(0,5000)
+
+c <- ggplot(comm_2, aes(x=nreads_h)) + geom_histogram(binwidth=1, fill="blue") + labs(x="Number of Reads") + ggtitle("Heavily degraded- Rep 2") + theme_bw() + xlim(0,100) + ylim(0,5000)
+```
+
+Arranging all the three plots in one frame
+```{r warning=FALSE, message=FALSE}
+plot <- ggarrange(a,b,c, ncol = 1, nrow = 3)
+
+annotate_figure(plot, top = text_grob("Number of Reads of transcripts", color = "red", face = "bold", size = 14))
+```
+
+Cutoffs plots 
+
+Filtering condition
+```{r warning=FALSE, message=FALSE}
+hdeg_2 <- hdeg_rep1 %>% 
+  mutate(Filter=if_else(MapLen > 200 & MaxDelLen > 160, "Discard", "Not Discard"))
+
+mdeg_2 <- mdeg_max %>% 
+  mutate(filter_1=if_else(MapLen > 200 & MaxDelLen > 160, "discard", "not discard"))
+
+udeg_2 <- udeg_rep1 %>% 
+  mutate(Filter=if_else(MapLen > 200 & MaxDelLen > 160, "Discard", "Not Discard"))
+```
+
+Plot of the filtering conditions of all three samples
+```{r warning=FALSE, message=FALSE}
+ggplot(hdeg_2, aes(x=MapLen, y=MaxInsertLen, col=Filter)) + geom_point() + xlim(0,4000) + ylim(0,500) + ggtitle("Heavily degraded") + theme_bw() + labs(x="Map Length", y="Maximum Insertion Length") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))
+
+ggplot(mdeg_2, aes(x=MapLen, y=MaxInsertLen, col=filter_1)) + geom_point() + xlim(0,4000) + ylim(0,500) + ggtitle("Mildly degraded") + theme_bw()
+
+ggplot(udeg_2, aes(x=MapLen, y=MaxInsertLen, col=Filter)) + geom_point() + ggtitle("Non-degraded") + theme_bw() + ylim(0,2000) + labs(x="Map Length", y="Maximum Insertion Length") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))
+```
+
+
+Filtering conditions on the max lens 
+```{r warning=FALSE, message=FALSE}
+hdeg_3 <- hdeg_rep1 %>% 
+  mutate(Filter=if_else(MapLen > 200 & MaxInsertLen > 80, "Discard", "Not Discard"))
+
+mdeg_3 <- mdeg_max %>% 
+  mutate(filter_1=if_else(MapLen > 200 & MaxInsertLen > 80, "discard", "not discard"))
+
+udeg_3 <- udeg_rep1 %>% 
+  mutate(Filter=if_else(MapLen > 200 & MaxInsertLen > 80, "Discard", "Not Discard"))
+```
+
+
+Plots
+```{r warning=FALSE, message=FALSE}
+ggplot(hdeg_3, aes(x=MapLen, y=MaxDelLen, col=Filter)) + geom_point() + ggtitle("Heavily degraded") + theme_bw() + xlim(0,4000) + ylim(0,500) +  theme_bw() + labs(x="Map Length", y="Maximum Deletion Length") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))
+
+ggplot(mdeg_3, aes(x=MapLen, y=MaxDelLen, col=filter_1)) + geom_point() + ggtitle("Mildly degraded") + theme_bw() + xlim(0,4000) + ylim(0,500)
+
+ggplot(udeg_3, aes(x=MapLen, y=MaxDelLen, col=Filter)) + geom_point() + ggtitle("Non-degraded") + theme_bw() + xlim(0,7000) + ylim(0,1500)+ theme_bw() + labs(x="Map Length", y="Maximum Deletion Length") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))
+```
+
+
+
+
