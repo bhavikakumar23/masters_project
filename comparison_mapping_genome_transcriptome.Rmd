@@ -1,0 +1,349 @@
+---
+title: "comparsion_mapping_genome_transcriptome"
+output: html_document
+date: "2023-04-19"
+editor_options: 
+  chunk_output_type: console
+---
+
+Comparing the lens (del, insert and soft clip) mapped to genome and transcriptome individually
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+})
+```
+
+Converting bam file --> dataframe
+
+Reading the bam file 
+1. mapped to transcriptome
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/genome_transcriptome/AR3_REH_Transcrip_wholecell_pass1_pass_filtered.transcriptome.bam")
+```
+
+2. mapped to genome
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/genome_transcriptome/AR3_REH_Transcrip_wholecell_pass1_pass_filtered.genome.bam")
+```
+
+Function for collapsing the list of lists into a single list as per the Rsamtools vignette
+```{r warning=FALSE, message=FALSE}
+.unlist <- function (x){
+  ## do.call(c, ...) coerces factor to integer, which is undesired
+  x1 <- x[[1L]]
+  if (is.factor(x1)){
+    structure(unlist(x), class = "factor", levels = levels(x1))
+  } else {
+    do.call(c, x)
+  }
+}
+```
+
+Store names of BAM fields
+```{r warning=FALSE, message=FALSE}
+bam_field <- names(bam_file[[1]])
+```
+
+go through each BAM field and unlist
+```{r warning=FALSE, message=FALSE}
+list <- lapply(bam_field, function(y) .unlist(lapply(bam_file, "[[", y)))
+```
+
+Storing the data as data frame
+```{r warning=FALSE, message=FALSE}
+bam_df <- do.call("DataFrame", list)
+names(bam_df) <- bam_field
+```
+
+converting bam_df into data frame without the package Rsamtools
+```{r warning=FALSE, message=FALSE}
+df_transcriptome <- as.data.frame(bam_df)
+df_genome <- as.data.frame(bam_df)
+```
+
+selecting columns required for analysis
+```{r warning=FALSE, message=FALSE}
+input_transcriptome <- df_transcriptome %>% 
+  dplyr::select(1,3,5,8,12) %>% 
+  dplyr::rename(Read = 1, Transcript = 2, StartCoord = 3, Cigar = 4, Sequence = 5)
+```
+
+```{r warning=FALSE, message=FALSE}
+input_genome <- df_genome %>% 
+  dplyr::select(1,3,5,8,12) %>% 
+  dplyr::rename(Read = 1, Chromosome = 2, StartCoord = 3, Cigar = 4, Sequence = 5)
+```
+
+## Parsing CIGAR- This matcher and doone function parses all the M, I, D and S in the full cigar string 
+
+Matcher function
+```{r warning=FALSE, message=FALSE}
+matcher <- function(pattern, x) {
+  ind = gregexpr(pattern, x)[[1]]
+  start = as.numeric(ind)
+  end = start + attr(ind, "match.length")- 2
+  apply(cbind(start,end), 1, function(y) substr(x, start=y[1], stop=y[2]));
+}
+```
+
+Doone function- This takes the sum of all the M, I, D and S
+```{r warning=FALSE, message=FALSE}
+doone <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  sum(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Deletions (D)
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("D")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates deletions 
+```{r warning=FALSE, message=FALSE}
+addcig_genome <- input_genome %>%
+  rowwise %>% mutate(DelLenGenome = cigarsums(Cigar))
+```
+
+Adds column of del len in transcriptome
+```{r warning=FALSE, message=FALSE}
+addcig_transcriptome <- input_transcriptome %>%
+  rowwise %>% mutate(DelLenTranscriptome = cigarsums(Cigar))
+```
+
+merging the data to make the plots
+```{r warning=FALSE, message=FALSE}
+del_len <- merge(x=addcig_genome, y=addcig_transcriptome, all=T)
+```
+
+Plot of del len genome and del len transcriptome
+```{r warning=FALSE, message=FALSE}
+ggplot(data =  subset(del_len, !is.na(DelLenGenome)), aes(x=DelLenGenome)) + geom_point()
+```
+
+
+
+Exploring Soft clipping (S)
+
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates Soft clip length- total sum (both the ends)
+```{r warning=FALSE, message=FALSE}
+addcig_genome <- input_genome %>%
+  rowwise %>% mutate(SoftClipLenGenome = cigarsums(Cigar))
+```
+
+Adding soft clip length of transcriptome 
+```{r warning=FALSE, message=FALSE}
+addcig_transcriptome <- input_transcriptome %>%
+  rowwise %>% mutate(SoftClipLenTranscriptome = cigarsums(Cigar))
+```
+
+Distribution plots
+```{r}
+ggplot(addcig_genome, aes(x=SoftClipLenGenome)) + geom_histogram() + xlim(0,1000) + ylim(0,1e+05) + geom_vline(aes(xintercept=mean(SoftClipLenGenome))) + ggtitle("Mapped to genome")
+
+ggplot(addcig_transcriptome, aes(x=SoftClipLenTranscriptome)) + geom_histogram() + xlim(0,1000) + ylim(0,1e+05) + geom_vline(aes(xintercept=mean(SoftClipLenTranscriptome))) + ggtitle("Mapped to Transcriptome") 
+```
+
+Counting the number of S in the data
+```{r warning=FALSE, message=FALSE}
+addcig_genome$S_count <- str_count(addcig_genome$Cigar, "S")
+
+colnames(addcig_genome)[6]="SoftClipLenGenomeSum"
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_transcriptome$S_count <- str_count(addcig_transcriptome$Cigar, "S")
+
+colnames(addcig_transcriptome)[6]="SoftClipLenTranscriptomeSum"
+```
+
+
+Having soft clips at the start and at the end
+```{r warning=FALSE, message=FALSE}
+soft_clip_both <- addcig_genome %>% 
+  filter(S_count=="2")
+
+soft_clip_both <- addcig_transcriptome %>% 
+  filter(S_count=="2")
+
+soft_clip_one <- addcig_genome %>% 
+  filter(S_count=="1")
+
+soft_clip_one <- addcig_transcriptome %>% 
+  filter(S_count=="1")
+```
+
+Finding if the soft clip is at the end or at the start
+and the length of the soft clip at the start of the string
+```{r warning=FALSE, message=FALSE}
+soft_clip_one$logic <- grepl("S$", soft_clip_one$Cigar)
+soft_clip_one$logic <- as.integer(as.logical(soft_clip_one$logic))
+
+soft_clip_one_start <- soft_clip_one %>% 
+  filter(logic=="0")
+```
+
+Reads that have soft clip on both the ends- mentioning whether they are at the 5' end or at the 3' end
+```{r warning=FALSE, message=FALSE}
+matcher <- function(pattern, x) {
+  ind = gregexpr(pattern, x)[[1]]
+  start = as.numeric(ind)
+  end = start + attr(ind, "match.length") -2
+  apply(cbind(start,end), 1, function(y) substr(x, start=y[1], stop=y[2]));
+}
+```
+
+Doone function will change and instead of taking the sum it will return the value at the start where S is 
+```{r warning=FALSE, message=FALSE}
+doone_start <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  as.numeric(matcher(pat, Cigar))[1]
+}
+```
+
+Finding soft clip (S) in the cigar string
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone_start, Cigar)
+}
+```
+
+Soft clip at the start of the CIGAR string
+```{r warning=FALSE, message=FALSE}
+addcig_start_g <- soft_clip_both %>%
+  rowwise %>% mutate(SoftClipStart = cigarsums(Cigar))
+```
+
+Soft clip at the end of the CIGAR string
+```{r warning=FALSE, message=FALSE}
+doone_end <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  as.numeric(matcher(pat, Cigar))[2]
+}
+```
+
+Finding soft clip (S) in the cigar string
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone_end, Cigar)
+}
+```
+
+calculating rowwise soft clips
+```{r warning=FALSE, message=FALSE}
+addcig_end_g <- soft_clip_both %>%
+  rowwise %>% mutate(SoftClipEnd = cigarsums(Cigar))
+```
+
+Merging both the start and end soft clip dataframe
+```{r warning=FALSE, message=FALSE}
+c <- merge(x=addcig_start_g, y=addcig_end_g, all=T)
+
+merge_soft_clip <- c %>% 
+  dplyr::select(-S_count)
+```
+
+Comparison plots- mapped to genome and mapped to transcriptome
+```{r warning=FALSE, message=FALSE}
+ggplot(merge_soft_clip, aes(x=SoftClipStart, y=SoftClipEnd)) + geom_point() + ggtitle("Mapped to genome- Soft clips present at both the ends")
+
+ggplot(merge_soft_clip, aes(x=SoftClipStart, y=SoftClipEnd)) + geom_point() + ggtitle("Mapped to transcriptome- Soft clips present at both the ends")
+```
+
+
+The reads that have soft clip at the start only
+calculating the length of the soft clip at the start
+```{r warning=FALSE, message=FALSE}
+doone <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  sum(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+finding soft clips (S)
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+rowwise calculating soft clips at the start
+```{r warning=FALSE, message=FALSE}
+addcig_one_start <- soft_clip_one_start %>%
+  rowwise %>% mutate(SoftClipStart = cigarsums(Cigar)) %>%
+  dplyr::select(-Cigar, -S_count, -logic)
+```
+
+Soft clip one end
+
+```{r warning=FALSE, message=FALSE}
+soft_clip_one_end <- soft_clip_one %>% 
+  filter(logic=="1")
+```
+
+calculating the length of the soft clip at the start
+```{r warning=FALSE, message=FALSE}
+doone <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  sum(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+finding S 
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+rowwise calculating soft clip lens
+```{r warning=FALSE, message=FALSE}
+addcig_one_end <- soft_clip_one_end %>%
+  rowwise %>% mutate(SoftClipEnd = cigarsums(Cigar)) %>%
+  dplyr::select(-Cigar, -S_count, -logic)
+```
+
+Merge the datasets of one soft clip 
+```{r warning=FALSE, message=FALSE}
+merge_one_soft_clip <- merge(x=addcig_one_start, y=addcig_one_end, all=T)
+
+subset_soft_clip <- subset(merge_one_soft_clip, !is.na(SoftClipStart)) # to calculate mean, max and min of the soft clip start
+subset_soft_clip <- subset(merge_one_soft_clip, !is.na(SoftClipEnd)) # to calculate mean, max and min of the soft clip end
+```
+
+Distribution plots 
+```{r warning=FALSE, message=FALSE}
+ggplot(data =  subset(merge_one_soft_clip, !is.na(SoftClipStart)), aes(x=SoftClipStart)) + geom_histogram() + xlim(0,1000) + ylim(0,20000) + geom_vline(aes(xintercept=mean(SoftClipStart))) + ggtitle("Mapped to genome")
+
+ggplot(data =  subset(merge_one_soft_clip, !is.na(SoftClipEnd)), aes(x=SoftClipEnd)) + geom_histogram() + xlim(0,500) + ylim(0,40000) +geom_vline(aes(xintercept=mean(SoftClipEnd))) + ggtitle("Mapped to genome")
+
+ggplot(data =  subset(merge_one_soft_clip, !is.na(SoftClipStart)), aes(x=SoftClipStart)) + geom_histogram() + xlim(0,1000) + ylim(0,20000) + geom_vline(aes(xintercept=mean(SoftClipStart))) + ggtitle("Mapped to transcriptome")
+
+ggplot(data =  subset(merge_one_soft_clip, !is.na(SoftClipEnd)), aes(x=SoftClipEnd)) + geom_histogram() + xlim(0,500) + ylim(0,40000) +geom_vline(aes(xintercept=mean(SoftClipEnd))) + ggtitle("Mapped to transcriptome")
+```
+
+Checking
+```{r warning=FALSE, message=FALSE}
+a <- addcig_transcriptome %>% 
+  filter(Read=="9bf9f64b-e0de-46de-840c-70652dcace03")
+```
+
