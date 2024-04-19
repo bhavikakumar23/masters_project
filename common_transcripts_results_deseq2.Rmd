@@ -1,0 +1,298 @@
+---
+title: "common_transcripts_res_deseq2"
+output: html_document
+date: "2023-10-05"
+editor_options: 
+  chunk_output_type: console
+---
+
+From the results of deseq2 of for without nanocount and without nanocount with filtration, we are taking the transcripts that are in without nano with filtration and exploring those transcripts
+
+Loading deseq2 results- res_without_nano and res_without_nano_filtration
+
+Loading the undegraded and heavy degraded data
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep1.csv")
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep1.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep2.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep2.csv")
+```
+
+loading rat cerebellum data and the filtered result of diff expression
+```{r warning=FALSE, message=FALSE}
+rat_low1 <- set_1
+rat_low2 <- set_1
+rat_high1 <- set_1
+rat_high2 <- set_1
+```
+
+Changing the column name of transcript to Transcript
+```{r warning=FALSE, message=FALSE}
+colnames(res_without_nano)[1] <- "Transcript"
+```
+
+Merging without filtration  and res_without_nano_f to get the read lengths of the transcripts in res_without_nano_f.
+```{r warning=FALSE, message=FALSE}
+comm_udeg_rep1 <- merge(x=udeg_rep1, y=res_without_nano, by="Transcript") #6024 transcripts
+comm_udeg_rep2 <- merge(x=udeg_rep2, y=res_without_nano, by="Transcript") #5999 transcripts
+comm_hdeg_rep1 <- merge(x=hdeg_rep1, y=res_without_nano, by="Transcript") #5999 transcripts
+comm_hdeg_rep2 <- merge(x=hdeg_rep2, y=res_without_nano, by="Transcript") #5912 transcripts
+```
+
+merging without filtration and res_without_nano_f to get the read lengths of the transcripts in res_without_f- Rat cerebellum
+```{r warning=FALSE, message=FALSE}
+comm_rat_low1 <- merge(x=rat_low1, y=res_without_nano_f, by="Transcript") #10908 transcripts
+comm_rat_low2 <- merge(x=rat_low2, y=res_without_nano_f, by="Transcript") #10908 transcripts
+comm_rat_high1 <- merge(x=rat_high1, y=res_without_nano_f, by="Transcript") #10506 transcripts
+comm_rat_high2 <- merge(x=rat_high2, y=res_without_nano_f, by="Transcript") #10575 transcripts
+```
+
+Read length distribution plot of all the comm transcripts- udeg and hdeg
+```{r warning=FALSE, message=FALSE}
+ggplot(comm_udeg_rep1, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + ggtitle("Non-degraded- replicate 1") + ylim(0,1200) + xlim(0,8000)
+ggplot(comm_udeg_rep2, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + ggtitle("Non-degraded- replicate 2") + xlim(0,8000)
+ggplot(comm_hdeg_rep1, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + ggtitle("Heavily-degraded- replicate 1") + ylim(0,350) + xlim(0,5000)
+ggplot(comm_hdeg_rep2, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + ggtitle("Heavily-degraded- replicate 2") + ylim(0,350) + xlim(0,5000)
+```
+
+Read length distribution plot of all the comm transcripts- udeg and hdeg
+```{r warning=FALSE, message=FALSE}
+ggplot(comm_rat_low1, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + ggtitle("Low RIN- replicate 1") + xlim(0,10000)
+ggplot(comm_rat_low2, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + ggtitle("Low RIN- replicate 2") + xlim(0,10000)
+ggplot(comm_rat_high1, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + ggtitle("High RIN- replicate 1") + xlim(0,10000)
+ggplot(comm_rat_high2, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + ggtitle("High RIN- replicate 2") + xlim(0,10000)
+```
+
+
+Running edgeR on the new datasets formed
+adding the name of the condition column in all the datasets
+```{r warning=FALSE, message=FALSE}
+comm_udeg_rep1$condition <- "undegraded_1"
+comm_hdeg_rep1$condition <- "heavy_degraded_1"
+comm_udeg_rep2$condition <- "undegraded_2"
+comm_hdeg_rep2$condition <- "heavy_degraded_2"
+```
+
+selecting the required columns
+```{r warning=FALSE, message=FALSE}
+udeg_1 <- comm_udeg_rep1 %>% 
+  dplyr::select(Transcript, condition)
+hdeg_1 <- comm_hdeg_rep1 %>% 
+  dplyr::select(Transcript, condition)
+udeg_2 <- comm_udeg_rep2 %>% 
+  dplyr::select(Transcript, condition)
+hdeg_2 <- comm_hdeg_rep2 %>% 
+  dplyr::select(Transcript, condition)
+```
+
+Grouping the data by transcripts and then find the number of reads of each transcript and reading the column condition as to calculate number of reads using summarise command
+```{r warning=FALSE, message=FALSE}
+ugrp1 <- udeg_1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+ugrp1$condition <- "undegraded_1"
+
+hgrp1 <- hdeg_1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+hgrp1$condition <- "heavy_degraded_1"
+
+ugrp2 <- udeg_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+ugrp2$condition <- "undegraded_2"
+
+hgrp2 <- hdeg_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+hgrp2$condition <- "heavy_degraded_2"
+```
+
+Merging the data to get one dataset for all the number of reads of each transcript in each condition
+```{r warning=FALSE, message=FALSE}
+deg_1 <- merge(x=ugrp1, y=hgrp1, all=T)
+deg_2 <- merge(x=ugrp2, y=hgrp2, all=T)
+
+data_hu <- merge(x=deg_1, y=deg_2, all=T)
+```
+
+Converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data_hu[is.na(data_hu)]=0
+```
+
+Formatting the data as required by deseq2 and converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data <- pivot_wider(data_hu, names_from = condition, values_from = nreads)
+data[is.na(data)] <- 0
+```
+
+Constructing a deseq dataset object by converting it into matrix and converting the number of reads into integer
+```{r warning=FALSE, message=FALSE}
+countData <- as.matrix(data[ ,-1])
+colnames(countData)=c("hdeg2", "hdeg1", "undeg2", "undeg1")
+rownames(countData)=data$Transcript
+```
+
+making a DGE object
+```{r warning=FALSE, message=FALSE}
+group <- c("degraded","degraded","control", "control")
+d <- DGEList(counts=countData,group=factor(group))
+```
+
+Keeping the transcripts that have greater than 5 reads in at least 2 conditions
+```{r warning=FALSE, message=FALSE}
+dim(d)
+d.full <- d
+head(d.full$counts)
+apply(d.full$counts, 2, sum)
+
+keep <- rowSums(d.full$counts > 5) >= 2
+d.full <- d.full[keep,]
+dim(d.full)
+```
+
+Counts per million 
+```{r warning=FALSE, message=FALSE}
+cpm_data <- cpm(d.full)
+```
+
+Normalising the counts
+```{r warning=FALSE, message=FALSE}
+d.full <- calcNormFactors(d.full)
+```
+
+Exploring the data to see if the replicates are similar
+```{r warning=FALSE, message=FALSE}
+plotMDS(d.full, method = "bcv", col=as.numeric(d.full$samples$group))
+```
+
+Estimating common dispersion
+```{r warning=FALSE, message=FALSE}
+d1 <- estimateCommonDisp(d.full, verbose = T)
+names(d1)
+```
+
+Estimating Tagwise dispersion
+```{r warning=FALSE, message=FALSE}
+d1 <- estimateTagwiseDisp(d1)
+names(d1)
+```
+
+Plotting BCV- plots the tagwise biological coefficient of variation (square root of dispersions) against log2-CPM
+```{r warning=FALSE, message=FALSE}
+plotBCV(d1)
+```
+
+Differential expression-
+Top tags extracts the most differentially expressed genes either ranked by the p-value or by absolute log-fold change
+```{r warning=FALSE, message=FALSE}
+et <- exactTest(d1)
+results <- topTags(et, n = nrow(countData), sort.by = "none")
+```
+
+decideTestDGE identifies which genes are significantly differentially expressed from an edgeR fit object containing p-values and test statistics
+total number od differentially expressed genes at FDR < 0.05
+```{r warning=FALSE, message=FALSE}
+de1 <- decideTestsDGE(et, adjust.method = "BH", p.value = 0.05, lfc = 1)
+summary(de1)
+```
+
+The function plotsmear generates a plot of the tagwise fold change against log-CPM (analogous to MA plot). DE tags are highlighted on the plot
+```{r warning=FALSE, message=FALSE}
+deltags <- rownames(d1)[as.logical(de1)]
+plotSmear(et, de.tags = deltags)
+abline(h=c(-1,1), col="blue")
+```
+
+Results1
+```{r warning=FALSE, message=FALSE}
+results1 <- edger_to_df(results)
+colnames(results1)[1] <- "Transcript"  # FDR is adj p_value
+
+results1$diffexpressed <- "NO"
+results1$diffexpressed[results1$logFC > 1 & results1$FDR < 0.05] <- "UP"
+results1$diffexpressed[results1$logFC < -1 & results1$FDR < 0.05] <- "DOWN"
+
+z_down <- results1 %>% 
+  filter(diffexpressed=="DOWN")
+z_up <- results1 %>% 
+  filter(diffexpressed=="UP")
+```
+
+Running limma-voom on the new datasets formed
+Constructing a deseq dataset object by converting it into matrix and converting the number of reads into integer
+```{r warning=FALSE, message=FALSE}
+countData <- as.matrix(data[ ,-1])
+colnames(countData)=c("hdeg2", "hdeg1", "undeg2", "undeg1")
+rownames(countData)=data$Transcript
+```
+
+making a DGE object
+```{r warning=FALSE, message=FALSE}
+group <- c("degraded","degraded","control", "control")
+x <- DGEList(counts=countData,group=factor(group))
+```
+
+Keeping the transcripts that have greater than 5 reads in at least 2 conditions
+```{r warning=FALSE, message=FALSE}
+dim(x)
+x.full <- x
+head(x.full$counts)
+apply(x.full$counts, 2, sum)
+
+keep <- rowSums(x.full$counts > 5) >= 2
+x.full <- x.full[keep,]
+dim(x.full)
+```
+
+Converting to counts per million 
+```{r warning=FALSE, message=FALSE}
+cpm_data <- cpm(x.full)
+```
+
+Normalising the counts
+```{r warning=FALSE, message=FALSE}
+x.full <- calcNormFactors(x.full)
+```
+
+Similar to PCA plot to check similarity between replicates of samples
+```{r warning=FALSE, message=FALSE}
+plotMDS(x.full)
+```
+
+Voom transformation and calculation of variance weights
+```{r warning=FALSE, message=FALSE}
+mm <- model.matrix(~0 + group) # this specifies a model where each coefficient corresponds to a group mean
+
+y <- voom(x.full, mm, plot=T)
+```
+
+Fitting linear models
+```{r warning=FALSE, message=FALSE}
+fit <- lmFit(y, mm)
+head(coef(fit))
+
+contr <- makeContrasts(groupcontrol - groupdegraded, levels = colnames(coef(fit)))
+contr
+
+#estimating contrast for each gene
+tmp <- contrasts.fit(fit, contr)
+tmp <- eBayes(tmp)
+plotSA(tmp, main="Final Model: Mean-variance Trend")
+
+summary(decideTests(tmp))
+
+top.table <- topTable(tmp, sort.by = "P", n=Inf)
+head(top.table)
+
+a_up <- top.table %>% 
+  filter(adj.P.Val < 0.05 & logFC > 1)
+a_down <- top.table %>% 
+  filter(adj.P.Val < 0.05 & logFC < -1)
+
+length(which(top.table$adj.P.Val < 0.05)) 
+```
+
+
