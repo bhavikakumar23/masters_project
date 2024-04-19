@@ -1,0 +1,166 @@
+---
+title: "rat_cerebellum_limma"
+output: html_document
+date: "2023-10-09"
+editor_options: 
+  chunk_output_type: console
+---
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(DESeq2)
+  library(apeglm)
+  library(limma)
+})
+```
+
+loading data
+```{r warning=FALSE, message=FALSE}
+rat_low1 <- set_1
+rat_low2 <- set_1
+rat_high1 <- set_1
+rat_high2 <- set_1
+```
+
+adding the name of the condition column in all the datasets
+```{r warning=FALSE, message=FALSE}
+rat_low1$condition <- "low_rin_1"
+rat_low2$condition <- "low_rin_2"
+rat_high1$condition <- "high_rin_1"
+rat_high2$condition <- "high_rin_2"
+```
+
+selecting the required columns
+```{r warning=FALSE, message=FALSE}
+rh_1 <- rat_high1 %>% 
+  dplyr::select(Transcript, condition)
+rl_1 <- rat_low1 %>% 
+  dplyr::select(Transcript, condition)
+rh_2 <- rat_high2 %>% 
+  dplyr::select(Transcript, condition)
+rl_2 <- rat_low2 %>% 
+  dplyr::select(Transcript, condition)
+```
+
+Grouping the data by transcripts and then find the number of reads of each transcript and reading the column condition as to calculate number of reads using summarise command
+```{r warning=FALSE, message=FALSE}
+rh_grp1 <- rh_1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+rh_grp1$condition <- "high_rin_1"
+
+rl_grp1 <- rl_1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+rl_grp1$condition <- "low_rin_1"
+
+rh_grp2 <- rh_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+rh_grp2$condition <- "high_rin_2"
+
+rl_grp2 <- rl_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+rl_grp2$condition <- "low_rin_2"
+```
+
+Merging the data to get one dataset for all the number of reads of each transcript in each condition
+```{r warning=FALSE, message=FALSE}
+deg_1 <- merge(x=rh_grp1, y=rl_grp1, all=T)
+deg_2 <- merge(x=rh_grp2, y=rl_grp2, all=T)
+
+data_hu <- merge(x=deg_1, y=deg_2, all=T)
+```
+
+Converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data_hu[is.na(data_hu)]=0
+```
+
+Formatting the data as required by deseq2 and converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data <- pivot_wider(data_hu, names_from = condition, values_from = nreads)
+data[is.na(data)] <- 0
+```
+
+Converting data to matrix
+```{r warning=FALSE, message=FALSE}
+countData <- as.matrix(data[ ,-1])
+colnames(countData)=c("low_rin_2", "low_rin_1", "high_rin_2", "high_rin_1")
+rownames(countData)=data$Transcript
+```
+
+making a DGE object
+```{r warning=FALSE, message=FALSE}
+group <- c("low","low","high", "high")
+x <- DGEList(counts=countData,group=factor(group))
+```
+
+Keeping the transcripts that have greater than 5 reads in at least 2 conditions
+```{r warning=FALSE, message=FALSE}
+dim(x)
+x.full <- x
+head(x.full$counts)
+apply(x.full$counts, 2, sum)
+
+keep <- rowSums(x.full$counts > 5) >= 2
+x.full <- x.full[keep,]
+dim(x.full)
+```
+
+Converting to counts per million 
+```{r warning=FALSE, message=FALSE}
+cpm_data <- cpm(x.full)
+```
+
+Normalising the counts
+```{r warning=FALSE, message=FALSE}
+x.full <- calcNormFactors(x.full)
+```
+
+Similar to PCA plot to check similarity between replicates of samples
+```{r warning=FALSE, message=FALSE}
+plotMDS(x.full)
+```
+
+Voom transformation and calculation of variance weights
+```{r warning=FALSE, message=FALSE}
+mm <- model.matrix(~0 + group) # this specifies a model where each coefficient corresponds to a group mean
+
+y <- voom(x.full, mm, plot=T)
+```
+
+Fitting linear models
+```{r warning=FALSE, message=FALSE}
+fit <- lmFit(y, mm)
+head(coef(fit))
+
+contr <- makeContrasts(grouphigh - grouplow, levels = colnames(coef(fit)))
+contr
+
+#estimating contrast for each gene
+tmp <- contrasts.fit(fit, contr)
+tmp <- eBayes(tmp)
+plotSA(tmp, main="Final Model: Mean-variance Trend")
+
+summary(decideTests(tmp))
+
+top.table <- topTable(tmp, sort.by = "P", n=Inf)
+head(top.table)
+
+a_up <- top.table %>% 
+  filter(adj.P.Val < 0.05 & logFC > 1)
+a_down <- top.table %>% 
+  filter(adj.P.Val < 0.05 & logFC < -1)
+
+length(which(top.table$adj.P.Val < 0.05)) 
+```

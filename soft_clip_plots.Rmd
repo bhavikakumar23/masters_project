@@ -1,0 +1,125 @@
+---
+title: "soft_clip_plots"
+output: html_document
+date: "2023-04-27"
+editor_options: 
+  chunk_output_type: console
+---
+
+This script is for distribution plots of 5' and 3' end with and without soft clips for the full data set of undegraded and heavily degraded data. 
+
+loading libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+})
+```
+
+loading data
+```{r warning=FALSE, message=FALSE}
+heavily_degraded <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/heavily_degraded.csv")
+undegraded <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/undegraded.csv")
+mildly_degraded <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/mildly_degraded.csv")
+```
+
+5' END
+
+Dropping NA's (if any) from the columns
+```{r warning=FALSE, message= FALSE}
+test_h <- heavily_degraded %>% 
+  drop_na(start_without_sc)
+test_u <- undegraded %>% 
+  drop_na(start_without_sc)
+```
+
+selecting transcripts for which plot has to be generated. 
+```{r warning=FALSE, message=FALSE}
+filter_h <- test_h %>% 
+  filter(Transcript=="ENST00000525828.1")
+filter_u <- test_u %>% 
+  filter(Transcript=="ENST00000525828.1")
+```
+
+Distribution plot for 5' end with sc and mentioning the Transcript length (TL) on the plot 
+```{r warning=FALSE, message=FALSE}
+a <- ggplot(filter_u, aes(x=StartCoord)) + geom_histogram(aes(y=stat(density))) + geom_density(col="red") + ggtitle("Undegraded- 5' end with soft clip")+ scale_x_continuous(limits = c(-100, 700)) + geom_vline(xintercept = 664, colour="green") + labs(x="5' end with soft clip") + theme_bw()
+
+a <- ggplot(filter_h, aes(x=StartCoord)) + geom_histogram(aes(y=stat(density))) + geom_density(col="red") + ggtitle("Heavily degraded- 5' end with soft clip") + scale_x_continuous(limits = c(-100, 700)) + geom_vline(xintercept = 664, colour="green") + labs(x="5' end with soft clip") + theme_bw()
+```
+
+Checking the binwidth of the histogram
+```{r warning=FALSE, message=FALSE}
+gg_build <- ggplot_build(a)
+bin_width <- gg_build$data[[1]]$xmax - gg_build$data[[1]]$xmin
+unique(bin_width)
+```
+
+Distribution plot for 5' end without sc and mentioning TL on the plot
+```{r warning=FALSE, message=FALSE}
+b <- ggplot(filter_u, aes(x=start_without_sc)) + geom_histogram(aes(y=stat(density))) + geom_density(col="red") + ggtitle("Undegraded- 5' end without soft clip") + scale_x_continuous(limits= c(-100, 700)) + geom_vline(xintercept = 664, colour="green") + labs(x="5' end without soft clip") + theme_bw()
+
+b <- ggplot(filter_h, aes(x=start_without_sc)) + geom_histogram(aes(y=stat(density))) + geom_density(col="red") + ggtitle("Heavily degraded- 5' end without soft clip") + scale_x_continuous(limits= c(-100, 700)) +geom_vline(xintercept = 664, colour="green") + labs(x="5' end without soft clip") + theme_bw()
+```
+
+Checking the binwidth of histograms
+```{r warning=FALSE, message=FALSE}
+gg_build <- ggplot_build(b)
+bin_width <- gg_build$data[[1]]$xmax - gg_build$data[[1]]$xmin
+unique(bin_width)
+```
+
+3' END 
+
+Dropping NA's (if any) from the columns
+
+```{r warning=FALSE, message=FALSE}
+test_h <- heavily_degraded %>% 
+  drop_na(end_without_sc)
+test_u <- undegraded %>% 
+  drop_na(end_without_sc)
+```
+
+Selecting the transcripts for which plot has to be generated.
+```{r warning=FALSE, message=FALSE}
+filter_h <- test_h %>% 
+  filter(Transcript=="ENST00000525828.1")
+filter_u <- test_u %>% 
+  filter(Transcript=="ENST00000525828.1")
+```
+
+Distribution plot for 3' with soft clip and mentioning TL on the plot
+```{r warning=FALSE, message=FALSE}
+c <- ggplot(filter_u, aes(x=end_with_sc)) + geom_histogram(aes(y=stat(density))) + geom_density(col="red") + ggtitle("Undegraded- 3' end with soft clip") + scale_x_continuous(limits = c(0,1000)) + geom_vline(xintercept = 664, colour="green") + labs(x="3' end with soft clip") + theme_bw()
+
+c <- ggplot(filter_h, aes(x=end_with_sc)) + geom_histogram(aes(y=stat(density))) + geom_density(col="red") + ggtitle("Heavily degraded- 3' end with soft clip") + scale_x_continuous(limits = c(0,1000)) + geom_vline(xintercept = 664, colour="green") + labs(x="3' end with soft clip") + theme_bw()
+```
+
+Checking binwidth of the histogram
+```{r warning=FALSE, message=FALSE}
+gg_build <- ggplot_build(c)
+bin_width <- gg_build$data[[1]]$xmax - gg_build$data[[1]]$xmin
+unique(bin_width)
+```
+
+Distribution plots for 3' without soft clip and mentioning TL on the plot
+```{r warning=FALSE, message=FALSE}
+d <- ggplot(filter_u, aes(x=end_without_sc)) + geom_histogram(aes(y=stat(density))) + geom_density(col="red") + ggtitle("Undegraded- 3' end without soft clip") + scale_x_continuous(limits = c(0,1000)) + geom_vline(xintercept = 664, colour="green") + labs(x="3' end without soft clip") + theme_bw()
+
+d <- ggplot(filter_h, aes(x=end_without_sc)) + geom_histogram(aes(y=stat(density))) + geom_density(col="red") + ggtitle("Heavily degraded- 3' end without soft clip") + scale_x_continuous(limits = c(0,1000)) + geom_vline(xintercept = 664, colour="green") + labs(x="3' end without soft clip") + theme_bw()
+```
+
+Checking binwidth of the histogram
+```{r warning=FALSE, message=FALSE}
+gg_build <- ggplot_build(d)
+bin_width <- gg_build$data[[1]]$xmax - gg_build$data[[1]]$xmin
+unique(bin_width)
+```

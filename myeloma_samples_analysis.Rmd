@@ -1,0 +1,725 @@
+---
+title: "myeloma_samples_analysis"
+output: html_document
+date: "2023-07-07"
+editor_options: 
+  chunk_output_type: console
+---
+
+This script is for analysis of Alice's myeloma patients samples. 
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+  library(slider)
+})
+```
+
+loading data
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/myeloma_samples/AC1_HR_2234_270ng_pass1_pass_filtered.transcriptome.bam")
+
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/myeloma_samples/AC3_HR1_2234_WCT_610ng_pass1_pass_filtered.transcriptome.bam")
+```
+
+Function for collapsing the list of lists into a single list as per the Rsamtools vignette
+```{r warning=FALSE, message=FALSE}
+.unlist <- function (x){
+  ## do.call(c, ...) coerces factor to integer, which is undesired
+  x1 <- x[[1L]]
+  if (is.factor(x1)){
+    structure(unlist(x), class = "factor", levels = levels(x1))
+  } else {
+    do.call(c, x)
+  }
+}
+```
+
+Store names of BAM fields
+```{r warning=FALSE, message=FALSE}
+bam_field <- names(bam_file[[1]])
+```
+
+go through each BAM field and unlist
+```{r warning=FALSE, message=FALSE}
+list <- lapply(bam_field, function(y) .unlist(lapply(bam_file, "[[", y)))
+```
+
+Storing the data as data frame
+```{r warning=FALSE, message=FALSE}
+bam_df <- do.call("DataFrame", list)
+names(bam_df) <- bam_field
+```
+
+converting bam_df into data frame without the package Rsamtools
+```{r warning=FALSE, message=FALSE}
+df_poly <- as.data.frame(bam_df)
+
+df_npoly <- as.data.frame(bam_df)
+```
+
+selecting columns required for analysis
+```{r warning=FALSE, message=FALSE}
+input_poly <- df_poly %>% 
+  dplyr::select(1,3,5,8,12) %>% 
+  dplyr::rename(Read = 1, Transcript = 2, StartCoord = 3, Cigar = 4, Sequence = 5)
+
+input_npoly <- df_npoly %>% 
+  dplyr::select(1,3,5,8,12) %>% 
+  dplyr::rename(Read = 1, Transcript = 2, StartCoord = 3, Cigar = 4, Sequence = 5)
+```
+
+## Parsing CIGAR- This matcher and doone function parses all the M, I, D and S in the full cigar string 
+
+Matcher function
+```{r warning=FALSE, message=FALSE}
+matcher <- function(pattern, x) {
+  ind = gregexpr(pattern, x)[[1]]
+  start = as.numeric(ind)
+  end = start + attr(ind, "match.length")- 2
+  apply(cbind(start,end), 1, function(y) substr(x, start=y[1], stop=y[2]));
+}
+```
+
+Doone function- This takes the sum of all the M, I, D and S
+```{r warning=FALSE, message=FALSE}
+doone <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  sum(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Finding Matches/Deletions/Insertions/Soft Clip
+1. Match
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("M")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates matches - applying cigarsums function to each row of the input to calculate the total mapped length
+```{r warning=FALSE, message=FALSE}
+addcig_1_npoly <- input_npoly %>%
+  rowwise %>% mutate(MapLen = cigarsums(Cigar))
+
+addcig_1_poly <- input_poly %>%
+  rowwise %>% mutate(MapLen = cigarsums(Cigar))
+```
+
+2. Deletion
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("D")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates deletions- we apply the cigarsums function to each row of the input to calculate the total length that is deleted
+```{r warning=FALSE, message=FALSE}
+addcig_2_npoly <- input_npoly %>%
+  rowwise %>% mutate(DelLen = cigarsums(Cigar))
+
+addcig_2_poly <- input_poly %>%
+  rowwise %>% mutate(DelLen = cigarsums(Cigar))
+```
+
+3. Insertion
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("I")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates insertions- applying cigarsums function to each row of the input to calculate the length that is inserted
+```{r warning=FALSE, message=FALSE}
+addcig_3_npoly <- input_npoly %>%
+  rowwise %>% mutate(InsertLen = cigarsums(Cigar))
+
+addcig_3_poly <- input_poly %>%
+  rowwise %>% mutate(InsertLen = cigarsums(Cigar))
+```
+
+4. Soft clipping (S)
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates Soft clip length- total sum on both the ends
+```{r warning=FALSE, message=FALSE}
+addcig_4_npoly <- input_npoly %>%
+  rowwise %>% mutate(SoftClipLenSum = cigarsums(Cigar))
+
+addcig_4_poly <- input_poly %>%
+  rowwise %>% mutate(SoftClipLenSum = cigarsums(Cigar))
+```
+
+
+Calculating the max lens- max del len, max insert len and max soft clip len
+
+Doone_1 function is calculating the max len in the string
+```{r warning=FALSE, message=FALSE}
+doone_1 <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  max(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Max del len
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("D")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_5_npoly <- input_npoly %>% 
+  rowwise %>% mutate(MaxDelLen = cigarsums(Cigar))
+
+addcig_5_poly <- input_poly %>% 
+  rowwise %>% mutate(MaxDelLen = cigarsums(Cigar))
+```
+
+Max insert len
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("I")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_6_npoly <- input_npoly %>% 
+  rowwise %>% mutate(MaxInsertLen = cigarsums(Cigar))
+
+addcig_6_poly <- input_poly %>% 
+  rowwise %>% mutate(MaxInsertLen = cigarsums(Cigar))
+```
+
+Max soft clip len 
+
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_7_npoly <- input_npoly %>% 
+  rowwise %>% mutate(MaxSoftClipLen = cigarsums(Cigar))
+
+addcig_7_poly <- input_poly %>% 
+  rowwise %>% mutate(MaxSoftClipLen = cigarsums(Cigar))
+```
+
+
+Merging all the addcig data frames into one data frame- non-polyadenylated
+```{r warning=FALSE, message=FALSE}
+merged_1_npoly <- merge(x=addcig_1_npoly, y= addcig_2_npoly, all=T)
+merged_2_npoly <- merge(x=addcig_3_npoly, y=addcig_4_npoly, all=T)
+merge_cigars_sum_npoly <- merge(x=merged_1_npoly, y=merged_2_npoly, all=T)
+
+merged_3_npoly <- merge(x=addcig_5_npoly, y=addcig_6_npoly, all=T)
+merged_cigar_max_npoly <- merge(x=addcig_7_npoly, y=merged_3_npoly, all=T)
+
+merge_cigar_npoly <- merge(x=merge_cigars_sum_npoly, y=merged_cigar_max_npoly, all=T)
+```
+
+Merging all the addcig data frames into one data frame- polyadenylated
+```{r warning=FALSE, message=FALSE}
+merged_1_poly <- merge(x=addcig_1_poly, y= addcig_2_poly, all=T)
+merged_2_poly <- merge(x=addcig_3_poly, y=addcig_4_poly, all=T)
+merge_cigars_sum_poly <- merge(x=merged_1_poly, y=merged_2_poly, all=T)
+
+merged_3_poly <- merge(x=addcig_5_poly, y=addcig_6_poly, all=T)
+merged_cigar_max_poly <- merge(x=addcig_7_poly, y=merged_3_poly, all=T)
+
+merge_cigar_poly <- merge(x=merge_cigars_sum_poly, y=merged_cigar_max_poly, all=T)
+```
+
+calculating number of reads of each transcript
+```{r warning=FALSE, message=FALSE}
+parse_cigar_npoly <- merge_cigar_npoly %>% 
+  group_by(Transcript) %>% 
+  mutate(NReads=n()) %>% 
+  ungroup()
+
+parse_cigar_poly <- merge_cigar_poly %>% 
+  group_by(Transcript) %>% 
+  mutate(NReads=n()) %>% 
+  ungroup()
+```
+
+replacing -inf to 0 
+```{r warning=FALSE, message=FALSE}
+parse_cigar_npoly$MaxDelLen[!is.finite(parse_cigar_npoly$MaxDelLen)] <- 0
+parse_cigar_npoly$MaxInsertLen[!is.finite(parse_cigar_npoly$MaxInsertLen)] <- 0
+parse_cigar_npoly$MaxSoftClipLen[!is.finite(parse_cigar_npoly$MaxSoftClipLen)] <- 0
+
+parse_cigar_poly$MaxDelLen[!is.finite(parse_cigar_poly$MaxDelLen)] <- 0
+parse_cigar_poly$MaxInsertLen[!is.finite(parse_cigar_poly$MaxInsertLen)] <- 0
+parse_cigar_poly$MaxSoftClipLen[!is.finite(parse_cigar_poly$MaxSoftClipLen)] <- 0
+```
+
+Function to calculate the 3' end coordinate
+```{r warning=FALSE, message=FALSE}
+subset_1_npoly <- parse_cigar_npoly %>% as_tibble() %>% 
+  rowwise() %>% 
+  mutate(L = sum(c_across(c(6:7))))       # L is taking the sum of MapLen and DelLen
+
+subset_1_poly <- parse_cigar_poly %>% as_tibble() %>% 
+  rowwise() %>% 
+  mutate(L = sum(c_across(c(6:7))))       # L is taking the sum of MapLen and DelLen
+
+end_coord <- function(StartCoord, L) {
+  end <- StartCoord + L - 1
+  return(end)
+}
+```
+
+Calculating the end coordinate without soft clip (sc) row wise and making a new column in the data frame as end_without_sc
+
+```{r warning=FALSE, message=FALSE}
+subset_2_npoly <- subset_1_npoly %>% 
+  rowwise() %>% 
+  mutate(end_without_sc = end_coord(StartCoord, L))
+
+subset_2_poly <- subset_1_poly %>% 
+  rowwise() %>% 
+  mutate(end_without_sc = end_coord(StartCoord, L))
+```
+
+Getting read length from seq column by taking the sum of map len, del len and insert len. include soft clip or not has to be decided???
+
+```{r warning=FALSE, message=FALSE}
+subset_final_npoly <- subset_2_npoly %>% 
+  mutate(ReadLen=sum(c_across(c(6:8))))
+
+subset_final_poly <- subset_2_poly %>% 
+  mutate(ReadLen=sum(c_across(c(6:8))))
+```
+
+Filtering the data with more than 50 reads
+
+laoding data
+```{r warning=FALSE, message=FALSE}
+npoly <- read.csv("/home/bhavika/Desktop/Nanograd/myeloma_samples/AC3_non_polyadenylated_610ng.csv")
+poly <- read.csv("/home/bhavika/Desktop/Nanograd/myeloma_samples/AC1_polyadenylated_270ng.csv")
+
+npoly <- read.csv("d:/Users/Sujata Kumar/Desktop/Nanograd/Data 2/AC3_non_polyadenylated_610ng.csv")
+poly <- read.csv("d:/Users/Sujata Kumar/Desktop/Nanograd/Data 2/AC1_polyadenylated_270ng.csv")
+```
+
+```{r warning=FALSE, message=FALSE}
+npoly_filter <- npoly %>% 
+  filter(NReads > 50)
+
+poly_filter <- poly %>% 
+  filter(NReads > 50)
+```
+
+Distribution plot for 3' ends
+```{r warning=FALSE, message=FALSE}
+ggplot(npoly_filter, aes(end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + theme_bw()+ labs(x="3' end without soft clip") + ggtitle("Non-polyadenylated- AC3_610ng") + scale_y_log10() + xlim(0,2000)
+
+ggplot(poly_filter, aes(end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + theme_bw()+ labs(x="3' end without soft clip") + ggtitle("Polyadenylated- AC1_270ng") + scale_y_log10() + xlim(0,2000)
+```
+
+To get total transcripts
+```{r warning=FALSE, message=FALSE}
+test_npoly <- npoly_filter %>% 
+  group_by(Transcript) %>% 
+  summarise(number_npoly=n())
+
+test_poly <- poly_filter %>% 
+  group_by(Transcript) %>% 
+  summarise(number_poly=n())
+
+merge_1 <- merge(x=test_npoly, y=test_poly, by="Transcript")
+```
+
+Re-plotting with the common transcripts in both the datasets
+```{r warning=FALSE, message=FALSE}
+npoly_filter_2 <- npoly_filter %>% 
+  filter(Transcript=="ENST00000251595.11" | Transcript=="ENST00000320868.9" | Transcript=="ENST00000327857.7" | Transcript=="ENST00000327857.7" | Transcript=="ENST00000361227.2" | Transcript=="ENST00000361381.2" | Transcript=="ENST00000361390.2" | Transcript=="ENST00000361453.3" | Transcript=="ENST00000361567.2" | Transcript=="ENST00000361624.2" | Transcript=="ENST00000361739.1" | Transcript=="ENST00000361789.2" | Transcript=="ENST00000361899.2" | Transcript=="ENST00000362079.2" | Transcript=="ENST00000363564.1" | Transcript=="ENST00000368733.4" | Transcript=="ENST00000390323.2" | Transcript=="ENST00000390547.3" | Transcript=="ENST00000397806.1" | Transcript=="ENST00000510231.1" | Transcript=="ENST00000633714.1" | Transcript=="ENST00000633925.1" | Transcript=="ENST00000647020.1" )
+
+poly_filter_2 <- poly_filter %>% 
+  filter(Transcript=="ENST00000251595.11" | Transcript=="ENST00000320868.9" | Transcript=="ENST00000327857.7" | Transcript=="ENST00000327857.7" | Transcript=="ENST00000361227.2" | Transcript=="ENST00000361381.2" | Transcript=="ENST00000361390.2" | Transcript=="ENST00000361453.3" | Transcript=="ENST00000361567.2" | Transcript=="ENST00000361624.2" | Transcript=="ENST00000361739.1" | Transcript=="ENST00000361789.2" | Transcript=="ENST00000361899.2" | Transcript=="ENST00000362079.2" | Transcript=="ENST00000363564.1" | Transcript=="ENST00000368733.4" | Transcript=="ENST00000390323.2" | Transcript=="ENST00000390547.3" | Transcript=="ENST00000397806.1" | Transcript=="ENST00000510231.1" | Transcript=="ENST00000633714.1" | Transcript=="ENST00000633925.1" | Transcript=="ENST00000647020.1" )
+
+
+ggplot(npoly_filter_2, aes(end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + theme_bw()+ labs(x="3' end without soft clip") + ggtitle("Non-polyadenylated- AC3_610ng") + xlim(0,2000) + scale_y_log10()
+
+ggplot(poly_filter_2, aes(end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + theme_bw()+ labs(x="3' end without soft clip") + ggtitle("Polyadenylated- AC1_270ng") + xlim(0,2000) + scale_y_log10()
+```
+
+Finding the transcript that has the same 3' end 
+```{r warning=FALSE, message=FALSE}
+test_poly_2 <- poly_filter_2 %>% 
+  group_by(end_without_sc) %>% 
+  mutate(number=n())
+
+filtered_1 <- test_poly_2 %>% 
+  filter(number=="6318")         # Transcript associated with it is ENST00000633925.1 with number as 29766
+
+filtered_2 <- npoly_filter_2 %>% 
+  filter(Transcript=="ENST00000363564.1")
+
+filtered_3 <- poly_filter_2 %>% 
+  filter(Transcript=="ENST00000363564.1")
+```
+
+Distribution of 3' end of each 23 transcripts that are there in polyadenylated and non-polyadenylated
+
+Filtering out the transcripts from poly and npoly
+```{r warning=FALSE, message=FALSE}
+npoly_filter2 <- npoly_filter %>% 
+  filter(Transcript=="ENST00000361381.2")
+poly_filter2 <- poly_filter %>% 
+  filter(Transcript=="ENST00000361381.2")
+```
+
+Distribution plot for the 3' ends
+```{r warning=FALSE, message=FALSE}
+a_n <- ggplot(npoly_filter2, aes(x=end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + labs(x="3' end without soft clip") + ggtitle("Non-polyadenylated-ENST00000647020.1") + scale_y_log10(limit=c(1,1000)) + xlim(300,800)
+a_n
+
+a_p <- ggplot(poly_filter2, aes(x=end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + labs(x="3' end without soft clip") +  ggtitle("Polyadenylated-ENST00000647020.1") + scale_y_log10(limit=c(1,1000))+ xlim(300,800)
+a_p
+
+plot <- ggarrange(a_n, a_p, ncol = 1, nrow = 2)
+
+annotate_figure(plot, top = text_grob("Distribution plot of 3' end", color = "red", face = "bold", size = 14))
+```
+
+Distribution of Read lens
+```{r}
+b_n <- ggplot(npoly_filter2, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + labs(x="Read Length") + ggtitle("Poly A plus-ENST00000361381.2") + scale_y_log10(limit=c(1,100)) + xlim(300,1500)
+b_n
+
+b_p <- ggplot(poly_filter2, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + labs(x="Read Length") + ggtitle("Total poly-ENST00000361381.2") + scale_y_log10(limit=c(1,100)) + xlim(300,1500)
+b_p
+
+plot <- ggarrange(b_n, b_p, ncol = 1, nrow = 2)
+
+annotate_figure(plot, top = text_grob("Distribution plot of Read Lengths", color = "red", face = "bold", size = 14))
+```
+
+
+
+
+
+
+```{r}
+npoly_filter2$condition <- "non_poly"
+poly_filter2$condition <- "poly"
+
+merge_2 <- merge(x=npoly_filter2, y=poly_filter2, all=T)
+
+ggplot(merge_2)+
+  geom_histogram(aes(x=end_without_sc_n, fill=condition, na.rm=TRUE), binwidth = 1)+
+  geom_histogram(aes(x=end_without_sc_p, fill=condition, na.rm=TRUE), binwidth = 1)+
+  theme_bw()+scale_y_log10()+ labs(x="3' end without soft clip") + ggtitle("ENST00000320868.9")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+Median of Read lens
+```{r warning=FALSE, message=FALSE}
+median3 <- npoly_filter %>% 
+  dplyr::select(Transcript, ReadLen)
+median4 <- median3 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(median=median(ReadLen))
+
+ggplot(median4, aes(x=median)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + labs(x="Median of Read Lengths") 
+
+ggtitle("Undegraded- filtering condition of map len and max insert len")+ ylim(0,80)
+```
+
+```{r warning=FALSE, message=FALSE}
+tx_npoly <- npoly_filter_2 %>% 
+  filter(Transcript=="ENST00000363564.1")
+tx_poly <- poly_filter_2 %>% 
+  filter(Transcript=="ENST00000363564.1")
+```
+
+
+Selecting required columns
+```{r warning=FALSE, message=FALSE}
+lnpoly <- tx_npoly %>% 
+  dplyr::select(Transcript, ReadLen)
+lpoly <- tx_poly %>% 
+  dplyr::select(Transcript, ReadLen)
+```
+
+Ordering the Read len columns
+```{r warning=FALSE, message=FALSE}
+lnpoly2 <- lnpoly[order(lnpoly$ReadLen), ]
+lpoly2 <- lpoly[order(lpoly$ReadLen), ]
+```
+
+Normalising between 0 and 1
+```{r warning=FALSE, message=FALSE}
+lnpoly2$count=(1:nrow(lnpoly2))/nrow(lnpoly2)
+lpoly2$count=(1:nrow(lpoly2))/nrow(lpoly2)
+```
+
+Filtered plot of map len and max del len condition
+```{r warning=FALSE, message=FALSE}
+ggplot()+
+  geom_point(data = lnpoly2, aes(x=count, y=ReadLen), color="blue")+
+  geom_point(data = lpoly2, aes(x=count, y=ReadLen), color="red") + theme_bw() + ggtitle("Non-polyadenylated and Polyadenylated- Read Lengths- ENST00000363564.1")
+```
+
+```{r warning=FALSE, message=FALSE}
+test_1 <- lnpoly %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(median=median(ReadLen))
+test_1
+
+test_2 <- lpoly %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(median=median(ReadLen))
+test_2
+```
+
+
+
+
+
+
+
+
+
+
+
+counting number of S in the CIGAR string
+```{r warning=FALSE, message=FALSE}
+input_npoly$s_count=str_count(input_npoly$Cigar, "S")
+
+input_poly$s_count=str_count(input_poly$Cigar, "S")
+```
+
+Finding the soft clips at the start and at the end
+```{r warning=FALSE, message=FALSE}
+soft_clip_both_npoly <- input_npoly %>% 
+  filter(s_count=="2")
+
+soft_clip_both_poly <- input_poly %>% 
+  filter(s_count=="2")
+```
+
+applying matcher function- no change in the function, its the same as was used for parsing cigar 
+```{r warning=FALSE, message=FALSE}
+matcher <- function(pattern, x) {
+  ind = gregexpr(pattern, x)[[1]]
+  start = as.numeric(ind)
+  end = start + attr(ind, "match.length") -2
+  apply(cbind(start,end), 1, function(y) substr(x, start=y[1], stop=y[2]));
+}
+```
+
+Doone_start function- this function is finding S at the start (5'end)
+```{r warning=FALSE, message=FALSE}
+doone_start <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  as.numeric(matcher(pat, Cigar))[1]
+}
+```
+
+Cigarsums is finding S 
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone_start, Cigar)
+}
+```
+
+Soft clip at the start of the CIGAR string
+```{r warning=FALSE, message=FALSE}
+addcig_start_npoly <- soft_clip_both_npoly %>%
+  rowwise %>% mutate(SoftClipStart = cigarsums(Cigar))
+
+addcig_start_poly <- soft_clip_both_poly %>%
+  rowwise %>% mutate(SoftClipStart = cigarsums(Cigar))
+```
+
+This function finding S at the end of the CIGAR string 
+```{r warning=FALSE, message=FALSE}
+doone_end <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  as.numeric(matcher(pat, Cigar))[2]
+}
+```
+
+Cigarsums finding S
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone_end, Cigar)
+}
+```
+
+Adding column that has soft clip end at the end (3' end)
+```{r warning=FALSE, message=FALSE}
+addcig_end_npoly <- soft_clip_both_npoly %>%
+  rowwise %>% mutate(SoftClipEnd = cigarsums(Cigar))
+
+addcig_end_poly <- soft_clip_both_poly %>%
+  rowwise %>% mutate(SoftClipEnd = cigarsums(Cigar))
+```
+
+Merging both the start and end soft clip dataframe
+```{r warning=FALSE, message=FALSE}
+c_npoly <- merge(x=addcig_start_npoly, y=addcig_end_npoly, all=T)
+
+c_poly <- merge(x=addcig_start_poly, y=addcig_end_poly, all=T)
+```
+
+De-selecting the s_count and sequence column as they are not required further. 
+```{r warning=FALSE, message=FALSE}
+merge_soft_clip_both_npoly <- c_npoly %>% 
+  dplyr::select(-s_count, -Sequence)
+
+merge_soft_clip_both_poly <- c_poly %>% 
+  dplyr::select(-s_count, -Sequence)
+```
+
+Soft clip that are either at the start or at the end (s_count=1), we don't know whether its at the start or at the end 
+
+```{r warning=FALSE, message=FALSE}
+soft_clip_one_npoly <- input_npoly %>% 
+  filter(s_count == "1")
+
+soft_clip_one_poly <- input_poly %>% 
+  filter(s_count == "1")
+```
+
+To check if soft clip is at the start we are making another column of called logic which gives output as True or False. 
+To filter out the soft clips at either end we have to convert the logic column as an integer. (True = 1 and False = 0)
+
+```{r warning=FALSE, message=FALSE}
+soft_clip_one_npoly$logic <- grepl("S$", soft_clip_one_npoly$Cigar)
+soft_clip_one_poly$logic <- grepl("S$", soft_clip_one_poly$Cigar)
+
+soft_clip_one_npoly$logic <- as.integer(as.logical(soft_clip_one_npoly$logic))
+soft_clip_one_poly$logic <- as.integer(as.logical(soft_clip_one_poly$logic))
+```
+
+Filtering out the soft clips that are present only at the end. 
+
+```{r warning=FALSE, message=FALSE}
+soft_clip_one_end_npoly <- soft_clip_one_npoly %>% 
+  filter(logic=="1")
+
+soft_clip_one_end_poly <- soft_clip_one_poly %>% 
+  filter(logic=="1")
+```
+
+calculating the length of the soft clip at the end using original doone function
+```{r warning=FALSE, message=FALSE}
+doone <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  sum(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Finding S in the CIGAR string
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+Making a separate column for Soft clip at the end and deselecting the s_count, logic and sequence. 
+```{r warning=FALSE, message=FALSE}
+addcig_one_end_npoly <- soft_clip_one_end_npoly %>%
+  rowwise %>% mutate(SoftClipEnd = cigarsums(Cigar)) %>%
+  dplyr::select(-s_count, -logic, -Sequence)
+
+addcig_one_end_poly <- soft_clip_one_end_poly %>%
+  rowwise %>% mutate(SoftClipEnd = cigarsums(Cigar)) %>%
+  dplyr::select(-s_count, -logic, -Sequence)
+```
+
+Filtering out soft clips present at the start
+
+```{r warning=FALSE, message=FALSE}
+soft_clip_one_start_npoly <- soft_clip_one_npoly %>% 
+  filter(logic=="0")
+
+soft_clip_one_start_poly <- soft_clip_one_poly %>% 
+  filter(logic=="0")
+```
+
+calculating the length of the soft clip at the start by applying the original doone function
+```{r warning=FALSE, message=FALSE}
+doone <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  sum(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Cigarsums is fincing S in the Cigar string
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+Making a separate column for the length of soft clip at the start and deselecting the sequence, s_count and logic columns
+```{r warning=FALSE, message=FALSE}
+addcig_one_start_npoly <- soft_clip_one_start_npoly %>%
+  rowwise %>% mutate(SoftClipStart = cigarsums(Cigar)) %>%
+  dplyr::select(-Sequence, -s_count, -logic)
+
+addcig_one_start_poly <- soft_clip_one_start_poly %>%
+  rowwise %>% mutate(SoftClipStart = cigarsums(Cigar)) %>%
+  dplyr::select(-Sequence, -s_count, -logic)
+```
+
+After separating the Soft clips of both the ends, there are few reads that have no soft clips
+
+Reads that do not have soft clip
+```{r warning=FALSE, message=FALSE}
+soft_clip_zero_npoly <- input_npoly %>% 
+  filter(s_count=="0")
+soft_clip_zero_poly <- input_poly %>% 
+  filter(s_count=="0")
+
+zero_npoly <- soft_clip_zero_npoly %>% 
+  dplyr::select(-s_count, -Sequence)
+zero_poly <- soft_clip_zero_poly %>% 
+  dplyr::select(-s_count, -Sequence)
+```
+
+Merging the heavily degraded dataset with all the columns of calculations combined. 
+```{r warning=FALSE, message=FALSE}
+poly1 <- merge(x=addcig_one_end_poly, y=addcig_one_start_poly, all=T)
+b_poly1 <- merge(x=poly1, y=zero_poly, all=T)
+poly_ac1 <- merge(merge_soft_clip_both_poly, y=b_poly1, all=T)
+```
+
+Merging undegraded dataset with all the columns of calculations combined. 
+```{r warning=FALSE, message=FALSE}
+npoly3 <- merge(x=addcig_one_end_npoly, y=addcig_one_start_npoly, all=T)
+b_npoly3 <- merge(x=npoly3, y=zero_npoly, all=T)
+npoly_ac3 <- merge(x=merge_soft_clip_both_npoly, y=b_npoly3, all=T)
+```

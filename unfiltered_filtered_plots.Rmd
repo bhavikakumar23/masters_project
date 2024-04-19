@@ -1,0 +1,229 @@
+---
+title: "unfiltered_filtered_plots"
+output: html_document
+date: "2023-05-12"
+editor_options: 
+  chunk_output_type: console
+---
+
+This script plots unfiltered and filtered read len plots of transcripts. The plot also includes mean, median and slope of the read lens. 
+
+Formula for slope calculation used = (number of reads)/(max read len - min read len)
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+})
+```
+
+loading replicate 1 data
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/heavily_degraded.csv")
+mdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/mildly_degraded.csv")
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/undegraded.csv")
+```
+
+loading replicate 2 data
+```{r warning=FALSE, message=FALSE}
+udeg_rep_2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/undegraded_rep_2.csv")
+mdeg_rep_2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/mildly_degraded_rep_2.csv")
+hdeg_rep_2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/heavily_degraded_rep_2.csv")
+```
+
+loading max lens data
+```{r warning=FALSE, message=FALSE}
+hdeg_max <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/hdeg_max_lens.csv")
+mdeg_max <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/mdeg_max_lens.csv")
+udeg_max <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/udeg_max_lens.csv")
+```
+
+Filtering the data for selected transcript
+```{r warning=FALSE, message=FALSE}
+tx_h <- hdeg_rep1 %>% 
+  filter(Transcript=="ENST00000361575.4")
+tx_u <- udeg_rep1 %>% 
+  filter(Transcript=="ENST00000361575.4")
+```
+
+Selecting required columns- Transcript and Readlen
+```{r warning=FALSE, message=FALSE}
+lh <- tx_h %>% 
+  dplyr::select(Transcript, ReadLen)
+lu <- tx_u %>% 
+  dplyr::select(Transcript, ReadLen)
+```
+
+Ordering the read len column
+```{r warning=FALSE, message=FALSE}
+lh2 <- lh[order(lh$ReadLen), ]
+lu2 <- lu[order(lu$ReadLen), ]
+```
+
+Normalising the reads between 0 and 1
+```{r warning=FALSE, message=FALSE}
+lh2$count=(1:nrow(lh2))/nrow(lh2)
+lu2$count=(1:nrow(lu2))/nrow(lu2)
+```
+
+Unfiltered plot
+```{r warning=FALSE, message=FALSE}
+ggplot()+
+  geom_point(data = lh2, aes(x=count, y=ReadLen), color="red")+ geom_hline(yintercept = 391, col="red") +
+  geom_point(data = lu2, aes(x=count, y=ReadLen), color="blue") + geom_hline(yintercept = 393, col="blue") + theme_bw() + ggtitle("Unfiltered")
+```
+
+Calculating the mean, median and slope
+```{r warning=FALSE, message=FALSE}
+test_1 <- lh %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(median=median(ReadLen))
+test_1
+
+test_2 <- lu %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(median=median(ReadLen))
+test_2
+
+test_1 <- lh %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(mean=mean(ReadLen))
+test_1
+
+test_2 <- lu %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(mean=mean(ReadLen))
+test_2
+```
+
+Adding Read len column in the data on max len dataset
+```{r warning=FALSE, message=FALSE}
+hdeg_max$ReadLen <- hdeg_max$MapLen + hdeg_max$DelLen + hdeg_max$InsertLen
+udeg_max$ReadLen <- udeg_max$MapLen + udeg_max$DelLen + udeg_max$InsertLen
+```
+
+Adding map len and del len conditions
+```{r warning=FALSE, message=FALSE}
+hdeg_filter <- hdeg_max %>% 
+  mutate(filter_1=ifelse(MapLen > 200 & MaxDelLen > 160 , "discard", "not discard"))
+
+udeg_filter <- udeg_max %>% 
+  mutate(filter_1=ifelse(MapLen > 200 & MaxDelLen > 160, "discard", "not discard"))
+```
+
+map len and insert len conditions
+```{r warning=FALSE, message=FALSE}
+hdeg_filter <- hdeg_max %>% 
+  mutate(filter_1=ifelse(MapLen > 200 & MaxInsertLen > 60 , "discard", "not discard"))
+
+udeg_filter <- udeg_max %>% 
+  mutate(filter_1=ifelse(MapLen > 200 & MaxInsertLen > 60, "discard", "not discard"))
+```
+
+Filtering the data for selected transcript
+```{r warning=FALSE, message=FALSE}
+tx_h <- hdeg_filter %>% 
+  filter(Transcript=="ENST00000216146.9") %>% 
+  filter(filter_1=="not discard")
+
+tx_u <- udeg_filter %>% 
+  filter(Transcript=="ENST00000216146.9") %>% 
+  filter(filter_1=="not discard")
+```
+
+Selecting required columns
+```{r warning=FALSE, message=FALSE}
+lh <- tx_h %>% 
+  dplyr::select(Transcript, ReadLen)
+lu <- tx_u %>% 
+  dplyr::select(Transcript, ReadLen)
+```
+
+Ordering the Read len columns
+```{r warning=FALSE, message=FALSE}
+lh2 <- lh[order(lh$ReadLen), ]
+lu2 <- lu[order(lu$ReadLen), ]
+```
+
+Normalising between 0 and 1
+```{r warning=FALSE, message=FALSE}
+lh2$count=(1:nrow(lh2))/nrow(lh2)
+lu2$count=(1:nrow(lu2))/nrow(lu2)
+```
+
+Filtered plot of map len and max del len condition
+```{r warning=FALSE, message=FALSE}
+ggplot()+
+  geom_point(data = lh2, aes(x=count, y=ReadLen), color="red")+
+  geom_point(data = lu2, aes(x=count, y=ReadLen), color="blue") + theme_bw() + ggtitle("Filtered- condition (MapLen > 200 & MaxDelLen > 160)")
+```
+
+Filtered plot of map len and max insert len condition
+```{r warning=FALSE, message=FALSE}
+ggplot()+
+  geom_point(data = lh2, aes(x=count, y=ReadLen), color="red")+
+  geom_point(data = lu2, aes(x=count, y=ReadLen), color="blue") + theme_bw() + ggtitle("ENST00000216146.9- Filtered- condition (MapLen > 200 & MaxInsertLen > 60)") + ylim(0,1700)
+```
+
+Calculating the mean, median and slope
+```{r warning=FALSE, message=FALSE}
+test_1 <- lh %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(mean=mean(ReadLen))
+test_1
+
+test_2 <- lu %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(mean=mean(ReadLen))
+test_2
+
+test_1 <- lh %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(median=median(ReadLen))
+test_1
+
+test_2 <- lu %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(median=median(ReadLen))
+test_2
+
+max(lh$ReadLen)
+min(lh$ReadLen)
+
+max(lu$ReadLen)
+min(lu$ReadLen)
+```
+
+Distribution plot of read lens of a particular transcript to check the saturation point
+Selecting the transcript
+```{r warning=FALSE, message=FALSE}
+sample <- hdeg_max %>% 
+  filter(Transcript=="ENST00000234875.9")
+sample_1 <- udeg_max %>% 
+  filter(Transcript=="ENST00000234875.9")
+```
+
+Distribution plot of Read lens
+```{r warning=FALSE, message=FALSE}
+a <- ggplot(sample, aes(x=ReadLen)) + geom_histogram(aes(y=stat(density)), binwidth = 1, fill="blue") + geom_density(col="red") + labs(x="Read Length") + ggtitle("Heavy degraded- ENST00000234875.9") + theme_bw() + ylim(0.00,0.05) + xlim(0,2500) + geom_vline(xintercept = 2061, col="green")
+
+b <- ggplot(sample_1, aes(x=ReadLen)) + geom_histogram(aes(y=stat(density)), binwidth = 1, fill="blue") + geom_density(col="red") + labs(x="Read Length") + ggtitle("Undegraded- ENST00000234875.9") + theme_bw()+ ylim(0.00,0.05) + xlim(0,2500) + geom_vline(xintercept = 2061, col="green")
+```
+
+Arranging the plots in one frame
+```{r warning=FALSE, message=FALSE}
+plot <- ggarrange(b, a, ncol = 1, nrow = 2)
+
+annotate_figure(plot, top = text_grob("Distribution plot of Read Lengths", color = "red", face = "bold", size = 14))
+```
+
+

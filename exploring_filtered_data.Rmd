@@ -1,0 +1,183 @@
+---
+title: "exploring data after filtering"
+output: html_document
+date: "2023-09-15"
+editor_options: 
+  chunk_output_type: console
+---
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(DESeq2)
+  library(apeglm)
+  library(limma)
+  library(edgeR)
+})
+```
+
+Without Nanocount
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/hdeg_combined.csv")
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/udeg_combined.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/undegraded_rep_2.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/heavily_degraded_rep_2.csv")
+```
+
+Without nanocount + filtering (indels + 3' end)
+```{r warning=FALSE, message=FALSE}
+udeg_rep1_f <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/udeg_rep1_all_filtering.csv")
+hdeg_rep1_f <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/hdeg_rep1_all_filtering.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/udeg_rep2_all_filtering.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/hdeg_rep2_all_filtering.csv")
+```
+
+With nanocount Data
+```{r warning=FALSE, message=FALSE}
+udeg_rep1_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/undegraded_hek293_pass1.filtAlignments_sorted.csv")
+hdeg_rep1_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/heavy_degraded_hek293_pass1.filtAlignments_sorted.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/undegraded_hek293_pass2.filtAlignments_sorted.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/heavy_degraded_hek293_pass2.filtAlignments_sorted.csv")
+```
+
+Read length plots- comparing unfiltered and filtered
+```{r warning=FALSE, message=FALSE}
+lu <- udeg_rep1 %>% 
+  dplyr::select(Transcript, ReadLen)
+lh <- hdeg_rep1 %>% 
+  dplyr::select(Transcript, ReadLen)
+
+lh2 <- lh[order(lh$ReadLen), ]
+lu2 <- lu[order(lu$ReadLen), ]
+
+lh2$percent=(1:nrow(lh2))
+lu2$percent=(1:nrow(lu2))
+
+ggplot()+
+  geom_point(data = lh2, aes(x=percent, y=ReadLen), color="red") +
+  geom_point(data = lu2, aes(x=percent, y=ReadLen), color="blue") + theme_bw() + ggtitle("Unfiltered- Read Length") + ylim(0,15000)
+
+luf <- udeg_rep1_f %>% 
+  dplyr::select(Transcript, new_ReadLen)
+lhf <- hdeg_rep1_f %>% 
+  dplyr::select(Transcript, new_ReadLen)
+
+lh2f <- lhf[order(lhf$new_ReadLen), ]
+lu2f <- luf[order(luf$new_ReadLen), ]
+
+lh2f$percent=(1:nrow(lh2f))/nrow(lh2f)
+lu2f$percent=(1:nrow(lu2f))/nrow(lu2f)
+
+ggplot()+
+  geom_point(data = lh2f, aes(x=percent, y=new_ReadLen), color="red") +
+  geom_point(data = lu2f, aes(x=percent, y=new_ReadLen), color="blue") + theme_bw() + ggtitle("Filtered") + ylim(0,15000)
+```
+
+3' end plots comparing unfiltered and filtered
+```{r}
+lu <- udeg_rep1 %>% 
+  dplyr::select(Transcript, end_without_sc)
+lh <- hdeg_rep1 %>% 
+  dplyr::select(Transcript, end_without_sc)
+
+lh2 <- lh[order(lh$end_without_sc), ]
+lu2 <- lu[order(lu$end_without_sc), ]
+
+lh2$percent=(1:nrow(lh2))/nrow(lh2)
+lu2$percent=(1:nrow(lu2))/nrow(lu2)
+
+ggplot()+
+  geom_point(data = lh2, aes(x=percent, y=end_without_sc), color="red") +
+  geom_point(data = lu2, aes(x=percent, y=end_without_sc), color="blue") + theme_bw() + ggtitle("Unfiltered- Plot of 3' end") + labs(x="Percent", y="3' end") + ylim(0,1e+05)
+
+luf <- udeg_rep1_f %>% 
+  dplyr::select(Transcript, new_3_end)
+lhf <- hdeg_rep1_f %>% 
+  dplyr::select(Transcript, new_3_end)
+
+lh2f <- lhf[order(lhf$new_3_end), ]
+lu2f <- luf[order(luf$new_3_end), ]
+
+lh2f$percent=(1:nrow(lh2f))/nrow(lh2f)
+lu2f$percent=(1:nrow(lu2f))/nrow(lu2f)
+
+ggplot()+
+  geom_point(data = lh2f, aes(x=percent, y=new_3_end), color="red") +
+  geom_point(data = lu2f, aes(x=percent, y=new_3_end), color="blue") + theme_bw() + ggtitle("Filtered- Plot of 3'end") + labs(x="Percent", y="3' end") + ylim(0,1e+05)
+```
+
+Read length plots- comparing out filtered and with nanocount
+```{r warning=FALSE, message=FALSE}
+lu <- udeg_rep1_nano %>% 
+  dplyr::select(Transcript, ReadLen)
+lh <- hdeg_rep1_nano %>% 
+  dplyr::select(Transcript, ReadLen)
+
+lh2 <- lh[order(lh$ReadLen), ]
+lu2 <- lu[order(lu$ReadLen), ]
+
+lh2$percent=(1:nrow(lh2))/nrow(lh2)
+lu2$percent=(1:nrow(lu2))/nrow(lu2)
+
+ggplot()+
+  geom_point(data = lh2, aes(x=percent, y=ReadLen), color="red") +
+  geom_point(data = lu2, aes(x=percent, y=ReadLen), color="blue") + theme_bw() + ggtitle("With Nanocount- Read Length") + ylim(0,15000)
+
+luf <- udeg_rep1_f %>% 
+  dplyr::select(Transcript, new_ReadLen)
+lhf <- hdeg_rep1_f %>% 
+  dplyr::select(Transcript, new_ReadLen)
+
+lh2f <- lhf[order(lhf$new_ReadLen), ]
+lu2f <- luf[order(luf$new_ReadLen), ]
+
+lh2f$percent=(1:nrow(lh2f))/nrow(lh2f)
+lu2f$percent=(1:nrow(lu2f))/nrow(lu2f)
+
+ggplot()+
+  geom_point(data = lh2f, aes(x=percent, y=new_ReadLen), color="red") +
+  geom_point(data = lu2f, aes(x=percent, y=new_ReadLen), color="blue") + theme_bw() + ggtitle("With filtering") + ylim(0,15000)
+```
+
+3' end plots comparing unfiltered and filtered
+```{r}
+lu <- udeg_rep1_nano %>% 
+  dplyr::select(Transcript, end_without_sc)
+lh <- hdeg_rep1_nano %>% 
+  dplyr::select(Transcript, end_without_sc)
+
+lh2 <- lh[order(lh$end_without_sc), ]
+lu2 <- lu[order(lu$end_without_sc), ]
+
+lh2$percent=(1:nrow(lh2))/nrow(lh2)
+lu2$percent=(1:nrow(lu2))/nrow(lu2)
+
+ggplot()+
+  geom_point(data = lh2, aes(x=percent, y=end_without_sc), color="red") +
+  geom_point(data = lu2, aes(x=percent, y=end_without_sc), color="blue") + theme_bw() + ggtitle("With nanocount- Plot of 3' end") + labs(x="Percent", y="3' end") + ylim(0,1e+05)
+
+luf <- udeg_rep1_f %>% 
+  dplyr::select(Transcript, new_3_end)
+lhf <- hdeg_rep1_f %>% 
+  dplyr::select(Transcript, new_3_end)
+
+lh2f <- lhf[order(lhf$new_3_end), ]
+lu2f <- luf[order(luf$new_3_end), ]
+
+lh2f$percent=(1:nrow(lh2f))/nrow(lh2f)
+lu2f$percent=(1:nrow(lu2f))/nrow(lu2f)
+
+ggplot()+
+  geom_point(data = lh2f, aes(x=percent, y=new_3_end), color="red") +
+  geom_point(data = lu2f, aes(x=percent, y=new_3_end), color="blue") + theme_bw() + ggtitle("Filtered- Plot of 3'end") + labs(x="Percent", y="3' end") + ylim(0,1e+05)
+```

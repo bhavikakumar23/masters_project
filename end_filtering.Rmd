@@ -1,0 +1,57 @@
+---
+title: "end filtering"
+author: "Bhavika Kumar"
+date: "2023-06-13"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+loading libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+})
+```
+
+loading data
+```{r}
+hdeg <- read.csv("d:/Users/Sujata Kumar/Desktop/Nanograd/Data/heavily_degraded.csv")
+udeg <- read.csv("d:/Users/Sujata Kumar/Desktop/Nanograd/Data/undegraded.csv")
+mdeg <- read.csv("d:/Users/Sujata Kumar/Desktop/Nanograd/Data/mildly_degraded.csv")
+```
+
+selecting the common transcripts from the samples
+```{r}
+hdeg1 <- hdeg %>% 
+  dplyr::select(Transcript, end_without_sc)
+
+udeg1 <- udeg %>% 
+  dplyr::select(Transcript, end_without_sc)
+
+mdeg1 <- mdeg %>% 
+  dplyr::select(Transcript, end_without_sc)
+```
+
+distribution plot of 3' end
+Heavy degraded
+```{r}
+ggplot(hdeg, aes(x=end_without_sc)) + geom_histogram(binwidth = 1, col="blue")+xlim(0,5000)+geom_vline(xintercept = 1349, col="red")+ labs(x="3' end without soft clip")+ggtitle("Heavy Degraded")+theme_bw()
+```
+
+Undegraded
+```{r}
+ggplot(udeg1, aes(x=end_without_sc)) + geom_histogram(binwidth = 1, col="blue")+ labs(x="3' end without soft clip")+ggtitle("Undegraded")+theme_bw()+xlim(0e+00,5000)+geom_vline(xintercept = 1409, col="red")
+```
+
+Mildly degraded
+```{r}
+ggplot(mdeg1, aes(x=end_without_sc)) + geom_histogram(binwidth = 1, col="blue")+ labs(x="3' end without soft clip")+ggtitle("Mild Degraded")+theme_bw()+xlim(0,5000)+geom_vline(xintercept = 1306, col="red")+ylim(0,4000)
+```

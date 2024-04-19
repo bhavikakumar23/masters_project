@@ -1,0 +1,35 @@
+---
+title: "transcript_length_explore"
+output: html_document
+date: "2023-10-13"
+editor_options: 
+  chunk_output_type: console
+---
+
+Data that has the transcript length column. Here we are plotting, the distribution of transcript length of DETs that were observed after filtration in edgeR and limma-voom
+
+```{r warning=FALSE, message=FALSE}
+merged_tx <- merge(x=udeg_rep1_txlen, y=z_det, by="Transcript")
+```
+
+selecting the required columns
+```{r warning=FALSE, message=FALSE}
+select_tx <- merged_tx %>% 
+  dplyr::select(Transcript, Transcript_len)
+```
+
+converting the column of transcript length to numeric type
+```{r warning=FALSE, message=FALSE}
+select_tx$Transcript_len <- as.numeric(as.character(select_tx$Transcript_len))
+```
+
+making transcript length as a vector
+```{r warning=FALSE, message=FALSE}
+tx_len <- unique(select_tx$Transcript_len)
+```
+
+histogram of transcript length
+```{r warning=FALSE, message=FALSE}
+ggplot(mapping = aes(tx_len)) + geom_histogram(binwidth = 100, col="blue") + ggtitle("Histogram of Trancript length of DETs") + ylim(0,15) + theme_bw() + labs(x="Transcript length", y="count") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + xlim(0,5000)
+```
+

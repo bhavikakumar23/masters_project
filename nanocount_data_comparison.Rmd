@@ -1,0 +1,444 @@
+---
+title: "nanocount_plots"
+author: "Bhavika Kumar"
+date: "2023-06-14"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This script is using the data from nanocount and comparing them with our own data (undegraded and heavy degraded). It also includes plots of median of read lens to compare the data with and without nanocount. 
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+})
+```
+
+loading data- nanocount output of heavy degraded and undegraded
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/nanocount_output/filtAlignments_sorted_5mM_MgCl_degrdation_pass1.bam")
+
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/nanocount_output/filtAlignments_sorted_undegraded_hek293_pass1.bam")
+
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/nanocount_output/primary_alignment_heavy_deg_pass1.bam")
+
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/nanocount_output/primary_alignment_undegraded_pass1.bam")
+
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/myeloma_samples/nanocount_output/AC3_HR1_2234_WCT_610ng_pass1_non_poly.filtAlignments_sorted.bam")
+
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/myeloma_samples/nanocount_output/AC1_HR_2234_270ng_pass1_poly.filtAlignments_sorted.bam")
+```
+
+Function for collapsing the list of lists into a single list as per the Rsamtools vignette
+```{r warning=FALSE, message=FALSE}
+.unlist <- function (x){
+  ## do.call(c, ...) coerces factor to integer, which is undesired
+  x1 <- x[[1L]]
+  if (is.factor(x1)){
+    structure(unlist(x), class = "factor", levels = levels(x1))
+  } else {
+    do.call(c, x)
+  }
+}
+```
+
+Store names of BAM fields
+```{r warning=FALSE, message=FALSE}
+bam_field <- names(bam_file[[1]])
+```
+
+go through each BAM field and unlist
+```{r warning=FALSE, message=FALSE}
+list <- lapply(bam_field, function(y) .unlist(lapply(bam_file, "[[", y)))
+```
+
+Storing the data as data frame
+```{r warning=FALSE, message=FALSE}
+bam_df <- do.call("DataFrame", list)
+names(bam_df) <- bam_field
+```
+
+converting bam_df into data frame without the package Rsamtools
+```{r warning=FALSE, message=FALSE}
+df <- as.data.frame(bam_df)
+
+test <- df %>% 
+  filter(mapq=="60")
+```
+
+selecting columns required for analysis
+```{r warning=FALSE, message=FALSE}
+input <- df %>% 
+  dplyr::select(1,3,5,8,12) %>% 
+  dplyr::rename(Read = 1, Transcript = 2, StartCoord = 3, Cigar = 4, Sequence = 5)
+```
+
+
+## Parsing CIGAR- This matcher and doone function parses all the M, I, D and S in the full cigar string 
+
+Matcher function
+```{r warning=FALSE, message=FALSE}
+matcher <- function(pattern, x) {
+  ind = gregexpr(pattern, x)[[1]]
+  start = as.numeric(ind)
+  end = start + attr(ind, "match.length")- 2
+  apply(cbind(start,end), 1, function(y) substr(x, start=y[1], stop=y[2]));
+}
+```
+
+Doone function- This takes the sum of all the M, I, D and S
+```{r warning=FALSE, message=FALSE}
+doone <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  sum(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Finding Matches/Deletions/Insertions/Soft Clip
+1. Match
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("M")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates matches - applying cigarsums function to each row of the input to calculate the total mapped length
+```{r warning=FALSE, message=FALSE}
+addcig_1 <- input %>%
+  rowwise %>% mutate(MapLen = cigarsums(Cigar))
+```
+
+2. Deletion
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("D")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates deletions- we apply the cigarsums function to each row of the input to calculate the total length that is deleted
+```{r warning=FALSE, message=FALSE}
+addcig_2 <- input %>%
+  rowwise %>% mutate(DelLen = cigarsums(Cigar))
+```
+
+3. Insertion
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("I")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates insertions- applying cigarsums function to each row of the input to calculate the length that is inserted
+```{r warning=FALSE, message=FALSE}
+addcig_3 <- input %>%
+  rowwise %>% mutate(InsertLen = cigarsums(Cigar))
+```
+
+4. Soft clipping (S)
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates Soft clip length- total sum on both the ends
+```{r warning=FALSE, message=FALSE}
+addcig_4 <- input %>%
+  rowwise %>% mutate(SoftClipLenSum = cigarsums(Cigar))
+```
+
+Calculating the max lens- max del len, max insert len and max soft clip len
+
+Doone_1 function is calculating the max len in the string
+```{r warning=FALSE, message=FALSE}
+doone_1 <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  max(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Max del len
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("D")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_5 <- input %>% 
+  rowwise %>% mutate(MaxDelLen = cigarsums(Cigar))
+```
+
+Max insert len
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("I")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_6 <- input %>% 
+  rowwise %>% mutate(MaxInsertLen = cigarsums(Cigar))
+```
+
+Max soft clip len 
+
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_7 <- input %>% 
+  rowwise %>% mutate(MaxSoftClipLen = cigarsums(Cigar))
+```
+
+Merging all the addcigs
+```{r warning=FALSE, message=FALSE}
+merge1 <- merge(x=addcig_1, y=addcig_2, all=T)
+merge2 <- merge(x=addcig_3, y=addcig_4, all=T)
+merged_1 <- merge(x=merge1, y=merge2, all=T)
+
+merge3 <- merge(x=addcig_5, y=addcig_6, all=T)
+merge4 <- merge(x=merge3, y=addcig_7, all=T)
+
+merge_cigar <- merge(x=merged_1, y=merge4, all=T)
+```
+
+
+replacing -inf to 0 
+```{r warning=FALSE, message=FALSE}
+merge_cigar$MaxDelLen[!is.finite(merge_cigar$MaxDelLen)] <- 0
+merge_cigar$MaxInsertLen[!is.finite(merge_cigar$MaxInsertLen)] <- 0
+merge_cigar$MaxSoftClipLen[!is.finite(merge_cigar$MaxSoftClipLen)] <- 0
+```
+
+calculating number of reads of each transcript
+```{r warning=FALSE, message=FALSE}
+parse_cigar_n <- merge_cigar %>% 
+  group_by(Transcript) %>% 
+  mutate(NReads=n()) %>% 
+  ungroup()
+```
+
+Function to calculate the 3' end coordinate
+```{r warning=FALSE, message=FALSE}
+subset_1 <- parse_cigar_n %>% as_tibble() %>% 
+  rowwise() %>% 
+  mutate(L = sum(c_across(c(6:7))))       # L is taking the sum of MapLen and DelLen
+
+end_coord <- function(StartCoord, L) {
+  end <- StartCoord + L - 1
+  return(end)
+}
+```
+
+Calculating the end coordinate without soft clip (sc) row wise and making a new column in the data frame as end_without_sc
+
+```{r warning=FALSE, message=FALSE}
+subset_2 <- subset_1 %>% 
+  rowwise() %>% 
+  mutate(end_without_sc = end_coord(StartCoord, L))
+```
+
+calculating read length
+```{r warning=FALSE, message=FALSE}
+subset_2$ReadLen <- subset_2$MapLen + subset_2$DelLen + subset_2$InsertLen
+```
+
+
+calculating median
+```{r warning=FALSE, message=FALSE}
+hdeg_normal <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/heavily_degraded.csv")
+hdeg_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/primary_align_nano_hdeg_pass1.csv")
+
+udeg_normal <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/undegraded.csv")
+udeg_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/primary_align_nano_udeg_pass1.csv")
+
+f1 <- udeg_normal %>% 
+  dplyr::select(Transcript, ReadLen)
+median1 <- f1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(median_normal=median(ReadLen))
+
+f2 <- udeg_nano %>% 
+  dplyr::select(Transcript, ReadLen)
+median2 <- f2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(median_nano=median(ReadLen))
+  
+median_udeg <- merge(x=median1, y=median2, by="Transcript")
+```
+
+```{r warning=FALSE, message=FALSE}
+ggplot(median_udeg, aes(x=median_nano)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + labs(x="Median of Read Lengths") + ggtitle("Undegraded- With Nanocount")+ xlim(0,8000) + ylim(0,50)
+```
+
+applying filtering conditions and plotting median read lens
+
+map len > 200 and max del len > 160
+```{r warning=FALSE, message=FALSE}
+udeg_max$ReadLen <- udeg_max$MapLen + udeg_max$DelLen + udeg_max$InsertLen
+hdeg_max$ReadLen <- hdeg_max$MapLen + hdeg_max$DelLen + hdeg_max$InsertLen
+
+set1 <- udeg_max %>% 
+  mutate(filter_1=if_else(MapLen > 200 & MaxDelLen > 160, "discard", "not discard"))
+
+set2 <- hdeg_max %>% 
+  mutate(filter_1=if_else(MapLen > 200 & MaxInsertLen > 60, "discard", "not discard"))
+
+filter1 <- set1 %>% 
+  filter(filter_1=="not discard")
+filter2 <- set2 %>% 
+  filter(filter_1=="not discard")
+
+f3 <- filter2 %>% 
+  dplyr::select(Transcript, ReadLen)
+median3 <- f3 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(median_filtered_no=median(ReadLen))
+
+merge_5 <- merge(x=median3, y=median2, by="Transcript")
+
+
+ggplot(merge_5, aes(x=median_filtered_no)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + labs(x="Median of Read Lengths") + ggtitle("Undegraded (Without Nanocount)- filtering condition of map len and max insert len") +xlim(0,8000)+ylim(0,50)
+
+ggplot(merge_5, aes(x=median_nano)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + labs(x="Median of Read Lengths") + ggtitle("Undegraded (With Nanocount)") +xlim(0,8000) + ylim(0,50)
+```
+
+Calculating number of reads in the data
+
+loading data- heavy degraded
+```{r warning=FALSE, message=FALSE}
+hdeg_normal <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/heavily_degraded.csv")
+hdeg_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/primary_align_nano_hdeg_pass1.csv")
+
+hdeg_normal[is.na(hdeg_normal)] <- 0
+hdeg_nano[is.na(hdeg_nano)] <- 0
+
+test_no <- hdeg_normal %>% 
+  group_by(Transcript) %>% 
+  summarise(nreads_no=n())
+test_nano <- hdeg_nano %>% 
+  group_by(Transcript) %>% 
+  summarise(nreads_nano=n())
+
+merge_4 <- merge(x=test_no, y=test_nano, by="Transcript")
+
+sum(merge_4[, 'nreads_no'])
+sum(merge_4[, 'nreads_nano'])
+```
+
+applying filtering conditions and finding the number of reads- heavy degraded
+```{r warning=FALSE, message=FALSE}
+hdeg_max <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/hdeg_max_lens.csv")
+
+hdeg_max$ReadLen <- hdeg_max$MapLen + hdeg_max$DelLen + hdeg_max$InsertLen
+
+set1 <- hdeg_max %>% 
+  mutate(filter_1=if_else(MapLen > 200 & MaxDelLen > 160, "discard", "not discard"))
+filter1 <- set1 %>% 
+  filter(filter_1=="not discard")
+
+hdeg_nano$ReadLen <- hdeg_nano$MapLen + hdeg_nano$DelLen + hdeg_nano$InsertLen
+
+test_noh1 <- filter1 %>% 
+  group_by(Transcript) %>% 
+  summarise(nreads_no = n())
+
+merge_5 <- merge(x=test_noh1, y=test_nano, by="Transcript")
+
+sum(merge_5[, 'nreads_nano'])
+sum(merge_5[, 'nreads_no'])
+
+set4 <- hdeg_max %>% 
+  mutate(filter_2=if_else(MapLen > 200 & MaxInsertLen > 60, "discard", "not discard"))
+filter2 <- set4 %>% 
+  filter(filter_2=="not discard")
+
+test_no2h <- filter2 %>% 
+  group_by(Transcript) %>% 
+  summarise(nreads_no=n())
+
+merge_6 <- merge(x=test_no2h, y=test_nano, by="Transcript")
+
+sum(merge_6[, 'nreads_nano'])
+sum(merge_6[, 'nreads_no'])
+```
+
+Undegraded 
+```{r warning=FALSE, message=FALSE}
+udeg_normal <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/undegraded.csv")
+udeg_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/primary_align_nano_udeg_pass1.csv")
+
+udeg_normal[is.na(udeg_normal)] <- 0
+udeg_nano[is.na(udeg_nano)] <- 0
+
+test_no <- udeg_normal %>% 
+  group_by(Transcript) %>% 
+  summarise(nreads=n())
+test_nano <- udeg_nano %>% 
+  group_by(Transcript) %>% 
+  summarise(nreads_nano=n())
+
+merge_1 <- merge(x=test_no, y=test_nano, by="Transcript")
+
+sum(merge_1[, 'nreads_nano'])
+sum(merge_1[, 'nreads'])
+```
+
+applying filtering conditions and finding the number of reads
+```{r warning=FALSE, message=FALSE}
+udeg_max <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/udeg_max_lens.csv")
+
+udeg_max$ReadLen <- udeg_max$MapLen + udeg_max$DelLen + udeg_max$InsertLen
+
+set1 <- udeg_max %>% 
+  mutate(filter_1=if_else(MapLen > 200 & MaxDelLen > 160, "discard", "not discard"))
+filter1 <- set1 %>% 
+  filter(filter_1=="not discard")
+
+udeg_nano$ReadLen <- udeg_nano$MapLen + udeg_nano$DelLen + udeg_nano$InsertLen
+
+test_no1 <- filter1 %>% 
+  group_by(Transcript) %>% 
+  summarise(nreads_no = n())
+
+merge_2 <- merge(x=test_no1, y=test_nano, by="Transcript")
+
+sum(merge_2[, 'nreads_nano'])
+sum(merge_2[, 'nreads_no'])
+
+set2 <- udeg_max %>% 
+  mutate(filter_2=if_else(MapLen > 200 & MaxInsertLen > 60, "discard", "not discard"))
+filter2 <- set2 %>% 
+  filter(filter_2=="not discard")
+
+test_no2 <- filter2 %>% 
+  group_by(Transcript) %>% 
+  summarise(nreads_no=n())
+
+merge_3 <- merge(x=test_no2, y=test_nano, by="Transcript")
+
+sum(merge_3[, 'nreads_no'])
+sum(merge_3[, 'nreads_nano'])
+```
+
+
+```{r}
+sample <- merge_6 %>% 
+  filter(Transcript=="ENST00000000442.11")
+```
+

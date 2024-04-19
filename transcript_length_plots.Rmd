@@ -1,0 +1,57 @@
+---
+title: "transcript_length_plots"
+output: html_document
+date: "2023-10-11"
+editor_options: 
+  chunk_output_type: console
+---
+
+loading data
+```{r}
+counts_h <- read.table("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/heavy_degraded_hek293_pass1.counts.tsv")
+counts_u <- read.table("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/undegraded_hek293_pass1.counts.tsv")
+```
+
+merging data to add the transcript length column
+```{r}
+hdeg_rep1_txlen <- merge(x=hdeg_rep1, y=counts_h, by="Transcript")
+udeg_rep1_txlen <- merge(x=udeg_rep1, y=counts_u, by="Transcript")
+
+
+```
+
+filtering the data that have transcript length of about 1500
+```{r}
+filter_h <- hdeg_rep1_txlen %>% 
+  filter(Transcript_len=="1500")
+
+filter_u <- udeg_rep1_txlen %>% 
+  filter(Transcript_len=="1500") %>% 
+  filter(NReads==29)
+
+f <- udeg_rep1_txlen %>% 
+  filter(Transcript=="ENST00000361624.2")
+```
+
+read length distribution plot of transcript length of 1500
+
+```{r}
+lu <- f %>% 
+  dplyr::select(Transcript, ReadLen)
+
+lu2 <- lu[order(lu$ReadLen), ]
+
+lu2$percent=(1:nrow(lu2))/nrow(lu2)
+```
+
+
+```{r}
+ggplot()+
+  geom_point(data = lu2, aes(x=percent, y=ReadLen), color="blue") + theme_bw() + ggtitle("Read Length Distribution of TL of 1542bp") + theme_bw() + labs(x="Percent", y="Read Length") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + scale_y_continuous(limits = c(0,2000))
+```
+
+
+```{r}
+a <- read.delim2("d:/Users/Sujata Kumar/Desktop/Nanograd/Data/AR15_Rat_cerebellum_RIN70_process.txt")
+```
+

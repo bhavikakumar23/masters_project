@@ -1,0 +1,389 @@
+---
+title: "median and mean of the reads"
+output: html_document
+date: "2023-05-01"
+editor_options: 
+  chunk_output_type: console
+---
+
+This script includes the median and mean of the reads and their distribution and correlation plots
+
+loading libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+})
+```
+
+Without nanocount
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep1.csv")
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep1.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep2.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep2.csv")
+```
+
+filtering reads of each dataset for the selected transcripts
+```{r warning=FALSE, message=FALSE}
+test_u <- undegraded %>% 
+  filter(Transcript=="ENST00000681052.1" | Transcript=="ENST00000344746.8" | Transcript=="ENST00000369817.7" | Transcript=="ENST00000420826.7" | Transcript=="ENST00000262096.13" | Transcript=="ENST00000221975.6" | Transcript=="ENST00000593863.5" | Transcript=="ENST00000361575.4" | Transcript=="ENST00000477403.1" | Transcript=="ENST00000525828.1")
+
+test_h <- heavily_degraded %>% 
+  filter(Transcript=="ENST00000681052.1" | Transcript=="ENST00000344746.8" | Transcript=="ENST00000369817.7" | Transcript=="ENST00000420826.7" | Transcript=="ENST00000262096.13" | Transcript=="ENST00000221975.6" | Transcript=="ENST00000593863.5" | Transcript=="ENST00000361575.4" | Transcript=="ENST00000477403.1" | Transcript=="ENST00000525828.1")
+
+test_m <- mildly_degraded %>% 
+  filter(Transcript=="ENST00000681052.1" | Transcript=="ENST00000344746.8" | Transcript=="ENST00000369817.7" | Transcript=="ENST00000420826.7" | Transcript=="ENST00000262096.13" | Transcript=="ENST00000221975.6" | Transcript=="ENST00000593863.5" | Transcript=="ENST00000361575.4" | Transcript=="ENST00000477403.1" | Transcript=="ENST00000525828.1")
+```
+
+Grouping the transcripts to get the median length of the reads of that particular transcript
+Heavily degraded
+```{r warning=FALSE, message=FALSE}
+sample_h <- test_h %>% 
+  dplyr::group_by(Transcript)
+
+median_h <- sample_h %>% 
+  summarise(median_readlen=median(ReadLen))
+```
+
+Undegraded
+```{r warning=FALSE, message=FALSE}
+sample_u <- test_u %>% 
+  dplyr::group_by(Transcript)
+
+median_u <- sample_u %>% 
+  summarise(median_readlen=median(ReadLen))
+```
+
+Mildly degraded
+```{r warning=FALSE, message=FALSE}
+sample_m <- test_m %>% 
+  dplyr::group_by(Transcript)
+
+median_m <- sample_m %>% 
+  summarise(median_readlen=median(ReadLen))
+```
+
+Distribution Plots for the median of Read len
+```{r warning=FALSE, message=FALSE}
+a <- ggplot(median_h, aes(x=median_readlen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Heavily degraded") + scale_x_continuous(limits = c(0,1250)) 
+
+b <- ggplot(median_u, aes(x=median_readlen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Undegraded") + scale_x_continuous(limits = c(0,1250)) 
+
+c <- ggplot(median_m, aes(x=median_readlen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Mildly degraded") + scale_x_continuous(limits = c(0,1250)) 
+
+plot <- ggarrange(b, c, a, ncol = 1, nrow = 3)
+
+annotate_figure(plot, top = text_grob("Median of Read lengths of 10 transcripts", color = "red", face = "bold", size = 14))
+
+```
+
+Grouping transcripts to get the mean read length
+Heavily degraded
+```{r warning=FALSE, message=FALSE}
+mean_h <- sample_h %>% 
+  summarise(mean_readlen=mean(ReadLen))
+```
+
+Undegraded
+```{r warning=FALSE, message=FALSE}
+mean_u <- sample_u %>% 
+  summarise(mean_readlen=mean(ReadLen))
+```
+
+Mildly degraded
+```{r warning=FALSE, message=FALSE}
+mean_m <- sample_m %>% 
+  summarise(mean_readlen=mean(ReadLen))
+```
+
+Distribution plots for mean of read lengths
+```{r warning=FALSE, message=FALSE}
+a <- ggplot(mean_h, aes(x=mean_readlen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Heavily degraded") + scale_x_continuous(limits = c(0,1250)) + scale_y_continuous(limits = c(0.0,2.0))
+
+b <- ggplot(mean_u, aes(x=mean_readlen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Undegraded") + scale_x_continuous(limits = c(0,1250)) + scale_y_continuous(limits = c(0.0,2.0))
+
+c <- ggplot(mean_m, aes(x=mean_readlen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Mildly degraded") + scale_x_continuous(limits = c(0,1250)) + scale_y_continuous(limits = c(0.0,2.0))
+
+plot <- ggarrange(b, c, a, ncol = 1, nrow = 3)
+
+annotate_figure(plot, top = text_grob("Mean of Read lengths of 10 transcripts", color = "red", face = "bold", size = 14))
+```
+
+MEAN AND MEDIAN FOR FULL DATA
+
+Grouping by transcripts to get the median of read lengths
+Heavily degraded
+```{r warning=FALSE, message=FALSE}
+h_deg_grp_1 <- hdeg_rep1 %>% 
+  dplyr::group_by(Transcript)
+h_deg_grp_2 <- hdeg_rep2 %>% 
+  dplyr::group_by(Transcript)
+
+median_h1 <- h_deg_grp_1 %>% 
+  summarise(median_readlen_h=median(ReadLen))
+median_h2 <- h_deg_grp_2 %>% 
+  summarise(median_readlen_h2=median(ReadLen))
+```
+
+Undegraded
+```{r warning=FALSE, message=FALSE}
+u_deg_grp_1 <- udeg_rep1 %>% 
+  dplyr::group_by(Transcript)
+u_deg_grp_2 <- udeg_rep2 %>% 
+  dplyr::group_by(Transcript)
+
+median_u1 <- u_deg_grp_1 %>% 
+  summarise(median_readlen_u1=median(ReadLen))
+median_u2 <- u_deg_grp_2 %>% 
+  summarise(median_readlen_u2=median(ReadLen))
+```
+
+Mildly degraded
+```{r warning=FALSE, message=FALSE}
+m_deg_grp_1 <- mdeg_rep1 %>% 
+  dplyr::group_by(Transcript)
+m_deg_grp_2 <- mdeg_rep_2 %>% 
+  dplyr::group_by(Transcript)
+
+median_m1 <- m_deg_grp_1 %>% 
+  summarise(median_readlen_m=median(ReadLen))
+median_m2 <- m_deg_grp_2 %>% 
+  summarise(median_readlen_2=median(ReadLen))
+```
+
+Finding common transcripts in the three datasets
+comm_2 df has all the transcripts that are common in all three datasets
+```{r warning=FALSE, message=FALSE}
+comm_1 <- merge(x=median_m1, y=median_h1, by="Transcript")
+comm_2 <- merge(x=median_u1, y=comm_1, by="Transcript")
+
+comm_3 <- merge(x=median_u1, y=median_h1, by="Transcript")
+```
+
+Distribution plots for median of read lens
+```{r warning=FALSE, message=FALSE}
+a <- ggplot(comm_3, aes(x=median_readlen_h)) + geom_histogram(aes(y=stat(density)), col="blue", binwidth = 1) + geom_density(col="red") + ggtitle("Heavily Degraded") + scale_x_continuous(limits = c(0,6000)) + scale_y_continuous(limits = c(0e+00,18e-04)) + theme_bw() + labs(x="Median Read length of Heavily degraded sample", y="Density")+ theme(axis.text=element_text(size=16), axis.title=element_text(size=18))
+
+b <- ggplot(comm_3, aes(x=median_readlen_u1)) + geom_histogram(aes(y=stat(density)), col="blue", binwidth = 1) + geom_density(col="red") + ggtitle("Non-degraded")+ scale_x_continuous(limits = c(0,6000))+ scale_y_continuous(limits = c(0e+00,18e-04)) + theme_bw() + labs(x="Median Read length of Non-degraded sample", y="Density")+ theme(axis.text=element_text(size=16), axis.title=element_text(size=18))
+
+c <- ggplot(comm_2, aes(x=median_readlen_m)) + geom_histogram(aes(y=stat(density)), col="blue", binwidth = 50) + geom_density(col="red") + ggtitle("Mildly Degraded")+ scale_x_continuous(limits = c(0,6000))+ scale_y_continuous(limits = c(0e+00,18e-04))
+
+plot <- ggarrange(b, a, ncol = 1, nrow = 2)
+
+annotate_figure(plot, top = text_grob("Comparison of Median Read lengths between samples", color = "black", face = "bold", size = 14))
+```
+
+Grouping transcripts to get the mean of read lengths
+Heavily degraded
+```{r warning=FALSE, message=FALSE}
+mean_h1 <- h_deg_grp_1 %>% 
+  summarise(mean_readlen_h=mean(ReadLen))
+mean_h2 <- h_deg_grp_2 %>% 
+  summarise(mean_readlen2=mean(ReadLen))
+```
+
+Undegraded
+```{r warning=FALSE, message=FALSE}
+mean_u1 <- u_deg_grp_1 %>% 
+  summarise(mean_readlen_u=mean(ReadLen))
+mean_u2 <- u_deg_grp_2 %>% 
+  summarise(mean_readlen2=mean(ReadLen))
+```
+
+Midly degraded
+```{r warning=FALSE, message=FALSE}
+mean_m1 <- m_deg_grp_1 %>% 
+  summarise(mean_readlen_m=mean(ReadLen))
+mean_m2 <- m_deg_grp_2 %>% 
+  summarise(mean_readlen2=mean(ReadLen))
+```
+
+Finding common transcripts in the three datasets
+comm_2 df has all the transcripts that are common in all three datasets
+```{r warning=FALSE, message=FALSE}
+comm_1 <- merge(x=mean_m1, y=mean_h1, by="Transcript")
+comm_2 <- merge(x=mean_u1, y=comm_1, by="Transcript")
+```
+
+Distribution plots for mean of read lens
+```{r warning=FALSE, message=FALSE}
+a <- ggplot(comm_2, aes(x=mean_readlen_h)) + geom_histogram(aes(y=stat(density)), col="blue", binwidth = 50) + geom_density(col="red") + ggtitle("Heavily Degraded")+scale_x_continuous(limits = c(0,6000)) + scale_y_continuous(limits = c(0e+00,18e-04))
+
+b <- ggplot(comm_2, aes(x=mean_readlen_u)) + geom_histogram(aes(y=stat(density)), col="blue", binwidth = 50) + geom_density(col="red") + ggtitle("Undegraded") + scale_x_continuous(limits = c(0,6000))+ scale_y_continuous(limits = c(0e+00,18e-04))
+
+c <- ggplot(comm_2, aes(x=mean_readlen_m)) + geom_histogram(aes(y=stat(density)), col="blue", binwidth = 50) + geom_density(col="red") + ggtitle("Mildly Degraded") + scale_x_continuous(limits = c(0,6000))+ scale_y_continuous(limits = c(0e+00,18e-04))
+
+plot <- ggarrange(b, c, a, ncol = 1, nrow = 3)
+
+annotate_figure(plot, top = text_grob("Mean of Read lengths of transcripts", color = "red", face = "bold", size = 14))
+```
+
+CORRELATION PLOTS BETWEEN REPLICATES
+
+Merging the median data into one
+```{r warning=FALSE, message=FALSE}
+udeg_median <- merge(x=median_u1, y=median_u2, all=T)
+hdeg_median <- merge(x=median_h1, y=median_h2, all=T)
+mdeg_median <- merge(x=median_m1, y=median_m2, all=T)
+```
+
+Merging the mean data into one
+```{r warning=FALSE, message=FALSE}
+udeg_mean <- merge(x=mean_u1, y=mean_u2, all=T)
+hdeg_mean <- merge(x=mean_h1, y=mean_h2, all=T)
+mdeg_mean <- merge(x=mean_m1, y=mean_m2, all=T)
+```
+
+Plotting scatter plot of median of Read lens
+```{r warning=FALSE, message=FALSE}
+a <- ggplot(udeg_median, aes(x=median_readlen_1, y=median_readlen_2)) + geom_point(col="black") + ggtitle("Undegraded- median read lens") + xlim(0,6000) + ylim(0,6000) + stat_cor(method = "pearson") + theme_bw()
+b <- ggplot(mdeg_median, aes(x=median_readlen_1, y=median_readlen_2)) + geom_point() + ggtitle("Mildly degraded- median read lens") + xlim(0,6000) + ylim(0,6000) + stat_cor(method = "pearson") + theme_bw()
+c <- ggplot(hdeg_median, aes(x=median_readlen_1, y=median_readlen_2)) + geom_point() + ggtitle("Heavily degraded- median read lens") + xlim(0,6000) + ylim(0,6000) + stat_cor(method = "pearson") + theme_bw()
+
+ggarrange(a,b,c, nrow = 3, ncol = 1)
+```
+
+Plotting scatter plot of mean of Read lens
+```{r warning=FALSE, message=FALSE}
+a <- ggplot(udeg_mean, aes(x=mean_readlen1, y=mean_readlen2)) + geom_point() + ggtitle("Undegraded- mean read lens") + xlim(0,6000) + ylim(0,6000) + stat_cor(method = "pearson") + theme_bw()
+b <- ggplot(mdeg_mean, aes(x=mean_readlen1, y=mean_readlen2)) + geom_point() + ggtitle("Mildly degraded- mean read lens") + xlim(0,6000) + ylim(0,6000) + stat_cor(method = "pearson") + theme_bw()
+c <- ggplot(hdeg_mean, aes(x=mean_readlen1, y=mean_readlen2)) + geom_point() + ggtitle("Heavily degraded- mean read lens") + xlim(0,6000) + ylim(0,6000) + stat_cor(method = "pearson")+ theme_bw()
+
+ggarrange(a,b,c, nrow = 3, ncol = 1)
+```
+
+Improving correlation by adding cutoffs 
+
+Filtering transcripts that have less number of reads
+Heavily degraded
+```{r warning=FALSE, message=FALSE}
+filter_h1 <- hdeg_rep1 %>% 
+  filter(NReads > 5)
+filter_h2 <- hdeg_rep_2 %>% 
+  filter(NReads > 5)
+```
+
+Mildly Degraded
+```{r warning=FALSE, message=FALSE}
+filter_m1 <- mdeg_rep1 %>% 
+  filter(NReads > 5)
+filter_m2 <- mdeg_rep_2 %>% 
+  filter(NReads > 5)
+```
+
+Undegraded
+```{r warning=FALSE, message=FALSE}
+filter_u1 <- udeg_rep1 %>% 
+  filter(NReads > 5)
+filter_u2 <- udeg_rep_2 %>% 
+  filter(NReads > 5)
+```
+
+
+
+grouping the filtered df by transcripts
+Heavily Degraded
+```{r warning=FALSE, message=FALSE}
+filter_h1.1 <- filter_h1 %>% 
+  dplyr::group_by(Transcript)
+filter_h2.2 <- filter_h2 %>% 
+  dplyr::group_by(Transcript)
+```
+
+Mildly Degraded
+```{r warning=FALSE, message=FALSE}
+filter_m1.1 <- filter_m1 %>% 
+  dplyr::group_by(Transcript)
+filter_m2.2 <- filter_m2 %>% 
+  dplyr::group_by(Transcript)
+```
+
+Undegraded
+```{r warning=FALSE, message=FALSE}
+filter_u1.1 <- filter_u1 %>% 
+  dplyr::group_by(Transcript)
+filter_u2.2 <- filter_u2 %>% 
+  dplyr::group_by(Transcript)
+```
+
+
+
+Finding the median of the reads that are filtered
+Heavily degraded
+```{r warning=FALSE, message=FALSE}
+median_h1.1 <- filter_h1.1 %>% 
+  summarise(median_readlen_h1=median(ReadLen))
+median_h2.2 <- filter_h2.2 %>% 
+  summarise(median_readlen_h2=median(ReadLen))
+
+comm_3 <- merge(x=median_h1.1, y=median_h2.2, all=T) 
+comm_3$median_readlen_h1[is.na(comm_3$median_readlen_h1)] <- 0
+comm_3$median_readlen_h2[is.na(comm_3$median_readlen_h2)] <- 0
+```
+
+Mildly degraded
+```{r warning=FALSE, message=FALSE}
+median_m1.1 <- filter_m1.1 %>% 
+  summarise(median_readlen_m1=median(ReadLen))
+median_m2.2 <- filter_m2.2 %>% 
+  summarise(median_readlen_m2=median(ReadLen))
+
+comm_4 <- merge(x=median_m1.1, y=median_m2.2, all=T)
+```
+
+Undegraded
+```{r warning=FALSE, message=FALSE}
+median_u1.1 <- filter_u1.1 %>% 
+  summarise(median_readlen_u1=median(ReadLen))
+median_u2.2 <- filter_u2.2 %>% 
+  summarise(median_readlen_u2=median(ReadLen))
+
+comm_5 <- merge(x=median_u1.1, y=median_u2.2, all=T)
+```
+
+
+correlation plot
+```{r warning=FALSE, message=FALSE}
+ggplot(comm_3, aes(x=median_readlen_h1, y=median_readlen_h2)) + geom_point(pch=1) + labs(x="Median Read len of rep 1", y="Median read len of rep 2") + ggtitle("Median Read length- Heavily Degraded") + stat_cor(method = "pearson")
+
+ggplot(comm_4, aes(x=median_readlen_m1, y=median_readlen_m2)) + geom_point(pch=1) + labs(x="Median Read len of rep 1", y="Median read len of rep 2") + ggtitle("Median Read length- Mildly Degraded") + stat_cor(method = "pearson")
+
+ggplot(comm_5, aes(x=median_readlen_u1, y=median_readlen_u2)) + geom_point(pch=1) + labs(x="Median Read len of rep 1", y="Median read len of rep 2") + ggtitle("Median Read length- Undegraded") + stat_cor(method = "pearson")
+```
+
+################################################################
+
+```{r}
+com1 <- merge(x=median_h1, y=median_h2, by="Transcript")
+
+com1$average_h <- (com1$median_readlen_h+com1$median_readlen_h2)/2
+com1$condition <- "Heavy degraded"
+
+com2 <- merge(x=median_u1, y=median_u2, by="Transcript")
+
+com2$average_u <- (com2$median_readlen_u1+com2$median_readlen_u2)/2
+com2$condition <- "Undegraded"
+
+com <- merge(x=com1, y=com2, by="Transcript")
+
+ggplot(com, aes(x=average_u, y=average_h))+geom_point(col="blue")+theme_classic()+labs(x="Median Read lens of Undegraded", y="Median Read lens of Heavily degraded") + xlim(0,4000) + ylim(0,3000)+ ggtitle("Plot of median of read lens between samples")
+
+write.csv(com1, file = "/home/bhavika/Desktop/Nanograd/Data/average_median_hdeg.csv", row.names = FALSE)
+write.csv(com2, file = "/home/bhavika/Desktop/Nanograd/Data/average_median_udeg.csv", row.names = FALSE)
+write.csv(com, file = "/home/bhavika/Desktop/Nanograd/Data/average_median.csv", row.names = FALSE)
+```
+
+
+
+
+
+
+

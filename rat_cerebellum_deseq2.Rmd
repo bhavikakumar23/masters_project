@@ -1,0 +1,221 @@
+---
+title: "rat_sample_analysis"
+output: html_document
+date: "2023-09-19"
+editor_options: 
+  chunk_output_type: console
+---
+
+loading data
+```{r warning=FALSE, message=FALSE}
+rat_low1 <- lrin_all_filtering_rep1
+rat_low2 <- lrin_all_filtering_rep2
+rat_high1 <- hrin_all_filtering_rep1
+rat_high2 <- hrin_all_filtering_rep2
+```
+
+adding the name of the condition column in all the datasets
+```{r warning=FALSE, message=FALSE}
+rl1$condition <- "low_rin_1"
+rl2$condition <- "low_rin_2"
+rh1$condition <- "high_rin_1"
+rh2$condition <- "high_rin_2"
+```
+
+selecting the required columns
+```{r warning=FALSE, message=FALSE}
+rh_1 <- rh1 %>% 
+  dplyr::select(Transcript, condition)
+rl_1 <- rl1 %>% 
+  dplyr::select(Transcript, condition)
+rh_2 <- rh2 %>% 
+  dplyr::select(Transcript, condition)
+rl_2 <- rl2 %>% 
+  dplyr::select(Transcript, condition)
+```
+
+Grouping the data by transcripts and then find the number of reads of each transcript and reading the column condition as to calculate number of reads using summarise command
+```{r warning=FALSE, message=FALSE}
+rh_grp1 <- rh_1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+rh_grp1$condition <- "high_rin_1"
+
+rl_grp1 <- rl_1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+rl_grp1$condition <- "low_rin_1"
+
+rh_grp2 <- rh_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+rh_grp2$condition <- "high_rin_2"
+
+rl_grp2 <- rl_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+rl_grp2$condition <- "low_rin_2"
+```
+
+Merging the data to get one dataset for all the number of reads of each transcript in each condition
+```{r warning=FALSE, message=FALSE}
+deg_1 <- merge(x=rh_grp1, y=rl_grp1, all=T)
+deg_2 <- merge(x=rh_grp2, y=rl_grp2, all=T)
+
+data_hu <- merge(x=deg_1, y=deg_2, all=T)
+```
+
+Converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data_hu[is.na(data_hu)]=0
+```
+
+Formatting the data as required by deseq2 and converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data <- pivot_wider(data_hu, names_from = condition, values_from = nreads)
+data[is.na(data)] <- 0
+```
+
+Converting data to matrix
+```{r warning=FALSE, message=FALSE}
+countData <- as.matrix(data[ ,-1])
+colnames(countData)=c("low_rin_2", "low_rin_1", "high_rin_2", "high_rin_1")
+rownames(countData)=data$Transcript
+```
+
+Filtering matrix to keep transcripts that have greater than 5 reads in at least two conditions
+```{r warning=FALSE, message=FALSE}
+keep1 <- rowSums(countData > 5) >=2
+countData <- countData[keep1,]
+```
+
+data frame of only the name of the condition. It is important to keep the columns of the count matrix and rows of column data exactly same. 
+```{r warning=FALSE, message=FALSE}
+colData <- data.frame(condition = factor(c("low", "low", "high", "high")))
+rownames(colData) <- c("low_rin_2", "low_rin_1", "high_rin_2", "high_rin_1")
+```
+
+Constructing the deseq dataset
+```{r warning=FALSE, message=FALSE}
+dds <- DESeqDataSetFromMatrix(countData = countData,
+                              colData = colData, 
+                              design = ~condition)
+```
+
+Running DESeq function
+```{r warning=FALSE, message=FALSE}
+dds <- DESeq(dds)
+```
+
+Results table
+```{r warning=FALSE, message=FALSE}
+res <- results(dds)
+summary(res)
+
+res[which(res$log2FoldChange > 1 & res$padj < 0.05),]
+```
+
+MA plots
+```{r warning=FALSE, message=FALSE}
+plotMA(res, alpha=0.05)
+
+plotMA(res, main="Undegraded vs Heavy degraded with indels and 3' end filtering", cex.lab=1.2)
+```
+
+Another approach to make MA plot
+```{r warning=FALSE, message=FALSE}
+sum(is.na(res$log2FoldChange))
+
+iv.sig <- res$padj < 0.05
+
+iv.up <- res$log2FoldChange > 1 & iv.sig
+iv.dn <- res$log2FoldChange < -1 & iv.sig
+
+plot(log2(res$baseMean + 1), res$log2FoldChange, pch=20, col="grey",
+     main="Low RIN vs High RIN- Rat Cerebellum", xlab="log2(baseMean)", ylab="log2FC", ylim=c(-4,4))
+points(log2(res$baseMean + 1)[iv.up], res$log2FoldChange[iv.up], col="red", pch=20)
+points(log2(res$baseMean + 1)[iv.dn], res$log2FoldChange[iv.dn], col="green", pch=20)
+abline(h=0)
+```
+
+
+
+Volcano plots
+converting result to data frame and adding another column of differential expressed transcripts and then creating a volcano plot
+
+Without filtration
+```{r warning=FALSE, message=FALSE}
+# for help in making volcano plot
+res <- results(dds,tidy = TRUE)  # adding column name to the transcript ID column
+head(results(dds))
+summary(res)
+
+# to help in making volcano plot
+res_without_nano <- data.frame(res)
+colnames(res_without_nano)[1] <- "Transcript"
+
+res_without_nano$diffexpressed <- "NO"
+res_without_nano$diffexpressed[res_without_nano$log2FoldChange > 1 & res_without_nano$padj < 0.05] <- "UP"
+res_without_nano$diffexpressed[res_without_nano$log2FoldChange < -1 & res_without_nano$padj < 0.05] <- "DOWN"
+
+head(res_without_nano[order(res_without_nano$padj) & res_without_nano$diffexpressed=="UP", ])
+
+res_without_nano$label <- ifelse(res_without_nano$transcript %in% head(res_without_nano[order(res_without_nano$padj), "transcript"], 60), res_without_nano$transcript, NA)
+
+ggplot(data = res_without_nano, aes(x=log2FoldChange, y=-log10(padj), col=diffexpressed)) + 
+  geom_vline(xintercept = c(-1,1), col="gray", linetype="dashed")+
+  geom_hline(yintercept = -log10(0.05), col="gray", linetype="dashed")+
+  geom_point(size=2)+
+  scale_color_manual(values = c("green", "grey", "red"), 
+                     labels=c("Downregulated", "Not significant", "Upregulated")) + 
+  coord_cartesian(ylim=c(0,50), xlim=c(-5,5)) +
+  labs(color="Differentially expressed", x=expression("log"[2]*"FC"), y=expression("-log"[10]*"adj p-value")) + theme_bw()
+```
+
+Get number of upregulated and downregulated transcripts
+```{r warning=FALSE, message=FALSE}
+b <- res_without_nano %>% 
+  filter(diffexpressed=="UP")
+c <- res_without_nano %>% 
+  filter(diffexpressed=="DOWN")
+
+filt2 <- res_without_nano %>% 
+  filter(diffexpressed=="UP" | diffexpressed=="DOWN")
+```
+
+With filtration
+```{r warning=FALSE, message=FALSE}
+# for help in making volcano plot
+res <- results(dds,tidy = TRUE)  # adding column name to the transcript ID column
+head(results(dds))
+summary(res)
+
+# to help in making volcano plot
+res_without_nano_f <- data.frame(res)
+colnames(res_without_nano_f)[1] <- "Transcript"
+
+res_without_nano_f$diffexpressed <- "NO"
+res_without_nano_f$diffexpressed[res_without_nano_f$log2FoldChange > 1 & res_without_nano_f$padj < 0.05] <- "UP"
+res_without_nano_f$diffexpressed[res_without_nano_f$log2FoldChange < -1 & res_without_nano_f$padj < 0.05] <- "DOWN"
+
+head(res_without_nano_f[order(res_without_nano_f$padj) & res_without_nano_f$diffexpressed=="UP", ])
+
+res_without_nano_f$label <- ifelse(res_without_nano_f$transcript %in% head(res_without_nano_f[order(res_without_nano_f$padj), "transcript"], 60), res_without_nano_f$transcript, NA)
+
+ggplot(data = res_without_nano_f, aes(x=log2FoldChange, y=-log10(padj), col=diffexpressed)) + 
+  geom_vline(xintercept = c(-1,1), col="gray", linetype="dashed")+
+  geom_hline(yintercept = -log10(0.05), col="gray", linetype="dashed")+
+  geom_point(size=2)+
+  scale_color_manual(values = c("green", "grey", "red"), 
+                     labels=c("Downregulated", "Not significant", "Upregulated")) + 
+  coord_cartesian(ylim=c(0,20), xlim=c(-5,5)) +
+  labs(color="Differentially expressed", x=expression("log"[2]*"FC"), y=expression("-log"[10]*"adj p-value")) + theme_bw()
+```
+
+Get number of upregulated and downregulated transcripts
+```{r warning=FALSE, message=FALSE}
+a <- res_without_nano_f %>% 
+  filter(diffexpressed=="UP")
+b <- res_without_nano_f %>% 
+  filter(diffexpressed=="DOWN")
+```

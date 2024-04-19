@@ -1,0 +1,38 @@
+---
+title: "multimappings"
+output: html_document
+date: "2023-10-10"
+editor_options: 
+  chunk_output_type: console
+---
+
+loading data
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- set_1
+udeg_rep1 <- set_1
+```
+
+separating multimappings- filtering out with mapq score of 0
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1_m <- hdeg_rep1 %>% 
+  filter(MapQ=="0")
+hdeg_rep1_u <- hdeg_rep1 %>% 
+  filter(MapQ=="60")
+udeg_rep1_m <- udeg_rep1 %>% 
+  filter(MapQ=="0")
+udeg_rep1_u <- udeg_rep1 %>% 
+  filter(MapQ=="60")
+```
+
+Distribution plot of read lengths of multimappings
+```{r warning=FALSE, message=FALSE}
+ggplot(udeg_rep1_m, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Non-degraded- Read lengths of Multi-mappers") + theme_bw() + labs(x="Read Length", y="Number of Reads") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + xlim(0,4000) + ylim(0,500)
+
+ggplot(udeg_rep1_u, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Non-degraded- Read lengths of Unique mappings") + theme_bw() + labs(x="Read Length", y="Number of Reads") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))+ xlim(0,4000) + ylim(0,500)
+
+ggplot(hdeg_rep1_m, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Heavily degraded- Read lengths of Multi-mappers") + theme_bw() + labs(x="Read Length", y="Number of Reads") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))+ xlim(0,4000)
+
+ggplot(hdeg_rep1_u, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Heavily degraded- Read lengths of Unique Mappings") + theme_bw() + labs(x="Read Length", y="Number of Reads") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))+ xlim(0,4000) + ylim(0,230)
+```
+
+

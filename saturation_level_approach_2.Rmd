@@ -1,0 +1,87 @@
+---
+title: "3' end filtering_diff approach"
+output: html_document
+date: "2023-07-31"
+editor_options: 
+  chunk_output_type: console
+---
+
+INCOMPLETE- NOT COMPLETELY SOLVED YET
+This script plots first the distribution plot of the 3' end of the reads of the transcript and then calculates the saturation point. 
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+  library(slider)
+})
+```
+
+```{r warning=FALSE, message=FALSE}
+hdeg_normal <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/heavily_degraded.csv")
+hdeg_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/primary_align_nano_hdeg_pass1.csv")
+
+udeg_normal <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/undegraded.csv")
+udeg_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/primary_align_nano_udeg_pass1.csv")
+```
+
+Selecting required column
+```{r warning=FALSE, message=FALSE}
+test_1h <- hdeg_normal %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc)
+test_1u <- udeg_normal %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc)
+```
+
+Filtering transcripts
+```{r warning=FALSE, message=FALSE}
+test_filter_h <- test_1h %>% 
+  filter(Transcript=="ENST00000361575.4")
+test_filter_u <- test_1u %>% 
+  filter(Transcript=="ENST00000361575.4")
+```
+
+distribution plot of the 3' ends - histogram
+```{r warning=FALSE, message=FALSE}
+ggplot(test_filter_h, aes(x=end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + labs(x="3' end without sc") + ggtitle("Hdeg-ENST00000361575.4") + theme_bw()
+
+ggplot(test_filter_u, aes(x=end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + labs(x="3' end without sc") + ggtitle("Udeg-ENST00000361575.4") + theme_bw()
+```
+
+
+Ordering the 3' end column and calculating the frequency of each 3' end
+```{r warning=FALSE, message=FALSE}
+test_order_h <- test_filter_h[order(test_filter_h$end_without_sc, decreasing = TRUE),]
+test_order_u <- test_filter_u[order(test_filter_u$end_without_sc, decreasing = TRUE),]
+
+test_2h <- test_order_h %>% 
+  group_by(end_without_sc) %>% 
+  mutate(number=n())
+test_2u <- test_order_u %>% 
+  group_by(end_without_sc) %>% 
+  mutate(number=n())
+```
+
+Taking the cumulative sum of the frequency 
+```{r warning=FALSE, message=FALSE}
+test_2u$cum <- cumsum(test_2u$number)
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+test_2u$dif <- p(diff(test_2u$cum, lag=20), length(test_2u$cum))
+test_2u$dif[is.na(test_2u$dif)] <- 0
+
+test_2u$saturation <- test_2u$end_without_sc[which.max(test_2u$dif)] + 20
+
+```
+

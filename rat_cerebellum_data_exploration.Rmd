@@ -1,0 +1,179 @@
+---
+title: "rat_cerebellum"
+output: html_document
+date: "2023-09-28"
+editor_options: 
+  chunk_output_type: console
+---
+
+loading libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+  library(edgeR)
+  library(coriell)
+})
+```
+
+loading data
+```{r warning=FALSE, message=FALSE}
+b_rin1l <- set_1
+b_rin2l <- set_1
+b_rin1h <- set_1
+b_rin2h <- set_1
+
+a_rin1l <- lrin_all_filtering_rep1
+a_rin2l <- lrin_all_filtering_rep2
+a_rin1h <- hrin_all_filtering_rep1
+a_rin2h <- hrin_all_filtering_rep2
+```
+
+Read length distribution plots
+
+```{r warning=FALSE, message=FALSE}
+ggplot(b_rin1h, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Read Length Distribution- Rat Cerebellum- RIN 8.4") + theme_bw()+ theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + labs(x="Read Length", y="Number of Reads") + xlim(0,7500) + ylim(0,1750)
+
+ggplot(b_rin1l, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Read Length Distribution- Rat Cerebellum- RIN 7.0") + theme_bw()+ theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + labs(x="Read Length", y="Number of Reads") + ylim(0,1750) + xlim(0,7500)
+```
+
+Before filtering
+Selecting required columns
+```{r warning=FALSE, message=FALSE}
+bl <- b_rin1l %>% 
+  dplyr::select(Transcript, ReadLen)
+bh <- b_rin1h %>% 
+  dplyr::select(Transcript, ReadLen)
+
+colnames(bl)[2] <- "ReadLen_l"
+colnames(bh)[2] <- "ReadLen_h"
+
+bl$rin <- "7.0"
+bh$rin <- "8.4"
+
+merged <- merge(x=bl, y=bh, all=T)
+
+wilcox.test(merged$ReadLen~merged$rin, alternative="less")
+
+ggplot(merged) + aes(x=rin, y=ReadLen) + geom_boxplot()
+
+qqnorm(bl$ReadLen)
+
+qqnorm(bh$ReadLen)
+```
+
+Ordering the Read len columns
+```{r warning=FALSE, message=FALSE}
+bl2 <- bl[order(bl$ReadLen), ]
+bh2 <- bh[order(bh$ReadLen), ]
+```
+
+Normalising between 0 and 1
+```{r warning=FALSE, message=FALSE}
+bl2$percent=(1:nrow(bl2))/nrow(bl2)
+bh2$percent=(1:nrow(bh2))/nrow(bh2)
+```
+
+Before filtering
+```{r warning=FALSE, message=FALSE}
+ggplot()+
+  geom_point(data = bl2, aes(x=percent, y=ReadLen), color="green")+
+  geom_point(data = bh2, aes(x=percent, y=ReadLen), color="blue") + theme_bw() + ggtitle("Rat cerebellum- before filtering") + ylim(0,30000)
+```
+
+After filtering
+Selecting required columns
+```{r warning=FALSE, message=FALSE}
+al <- a_rin1l %>% 
+  dplyr::select(Transcript, new_ReadLen)
+ah <- a_rin1h %>% 
+  dplyr::select(Transcript, new_ReadLen)
+```
+
+Ordering the Read len columns
+```{r warning=FALSE, message=FALSE}
+al2 <- al[order(al$new_ReadLen), ]
+ah2 <- ah[order(ah$new_ReadLen), ]
+```
+
+Normalising between 0 and 1
+```{r warning=FALSE, message=FALSE}
+al2$percent=(1:nrow(al2))/nrow(al2)
+ah2$percent=(1:nrow(ah2))/nrow(ah2)
+```
+
+Before filtering
+```{r warning=FALSE, message=FALSE}
+ggplot()+
+  geom_point(data = al2, aes(x=percent, y=new_ReadLen), color="green")+
+  geom_point(data = ah2, aes(x=percent, y=new_ReadLen), color="blue") + theme_bw() + ggtitle("Rat cerebellum- after filtering") + ylim(0,30000)
+```
+
+
+
+3' end distribution
+Before filtering
+Selecting required columns
+```{r warning=FALSE, message=FALSE}
+bl <- b_rin1l %>% 
+  dplyr::select(Transcript, end_without_sc)
+bh <- b_rin1h %>% 
+  dplyr::select(Transcript, end_without_sc)
+```
+
+Ordering the Read len columns
+```{r warning=FALSE, message=FALSE}
+bl2 <- bl[order(bl$end_without_sc), ]
+bh2 <- bh[order(bh$end_without_sc), ]
+```
+
+Normalising between 0 and 1
+```{r warning=FALSE, message=FALSE}
+bl2$percent=(1:nrow(bl2))/nrow(bl2)
+bh2$percent=(1:nrow(bh2))/nrow(bh2)
+```
+
+Before filtering
+```{r warning=FALSE, message=FALSE}
+ggplot()+
+  geom_point(data = bl2, aes(x=percent, y=end_without_sc), color="green")+
+  geom_point(data = bh2, aes(x=percent, y=end_without_sc), color="blue") + theme_bw() + ggtitle("Rat cerebellum- before filtering")
+```
+
+After filtering
+Selecting required columns
+```{r warning=FALSE, message=FALSE}
+al <- a_rin1l %>% 
+  dplyr::select(Transcript, new_3_end)
+ah <- a_rin1h %>% 
+  dplyr::select(Transcript, new_3_end)
+```
+
+Ordering the Read len columns
+```{r warning=FALSE, message=FALSE}
+al2 <- al[order(al$new_3_end), ]
+ah2 <- ah[order(ah$new_3_end), ]
+```
+
+Normalising between 0 and 1
+```{r warning=FALSE, message=FALSE}
+al2$percent=(1:nrow(al2))/nrow(al2)
+ah2$percent=(1:nrow(ah2))/nrow(ah2)
+```
+
+After filtering
+```{r warning=FALSE, message=FALSE}
+ggplot()+
+  geom_point(data = al2, aes(x=percent, y=new_3_end), color="green")+
+  geom_point(data = ah2, aes(x=percent, y=new_3_end), color="blue") + theme_bw() + ggtitle("Rat cerebellum- after filtering") + ylim(0,32000)
+```
+
+

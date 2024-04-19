@@ -1,0 +1,168 @@
+---
+title: "median of read lens plot between samples"
+author: "Bhavika Kumar"
+date: "2023-05-30"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Plot of median of read lengths of both the conditions. (median read length of one condition vs median read lengths of other condition )
+
+
+loading libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+})
+```
+
+Without nanocount
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep1.csv")
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep1.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep2.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep2.csv")
+```
+
+Without nanocount + filtering (indels + 3' end)
+```{r warning=FALSE, message=FALSE}
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/udeg_rep1_all_filtering.csv")
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/hdeg_rep1_all_filtering.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/udeg_rep2_all_filtering.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/hdeg_rep2_all_filtering.csv")
+```
+
+
+
+
+Heavily degraded
+```{r warning=FALSE, message=FALSE}
+h_deg_grp_1 <- hdeg_rep1 %>% 
+  dplyr::group_by(Transcript)
+h_deg_grp_2 <- hdeg_rep2 %>% 
+  dplyr::group_by(Transcript)
+
+median_h1 <- h_deg_grp_1 %>% 
+  summarise(median_readlen_h1=median(new_ReadLen))
+median_h2 <- h_deg_grp_2 %>% 
+  summarise(median_readlen_h2=median(new_ReadLen))
+
+
+rl_grp_1 <- rat_low1 %>% 
+  dplyr::group_by(Transcript)
+rl_grp_2 <- rat_low2 %>% 
+  dplyr::group_by(Transcript)
+
+median_rl1 <- rl_grp_1 %>% 
+  summarise(median_readlen_rl1=median(new_ReadLen))
+median_rl2 <- rl_grp_2 %>% 
+  summarise(median_readlen_rl2=median(new_ReadLen))
+```
+
+Undegraded
+```{r warning=FALSE, message=FALSE}
+u_deg_grp_1 <- udeg_rep1 %>% 
+  dplyr::group_by(Transcript)
+u_deg_grp_2 <- udeg_rep2 %>% 
+  dplyr::group_by(Transcript)
+
+median_u1 <- u_deg_grp_1 %>% 
+  summarise(median_readlen_u1=median(new_ReadLen))
+median_u2 <- u_deg_grp_2 %>% 
+  summarise(median_readlen_u2=median(new_ReadLen))
+
+rh_grp_1 <- rat_high1%>% 
+  dplyr::group_by(Transcript)
+rh_grp_2 <- rat_high2 %>% 
+  dplyr::group_by(Transcript)
+
+median_rh1 <- rh_grp_1 %>% 
+  summarise(median_readlen_rh1=median(new_ReadLen))
+median_rh2 <- rh_grp_2 %>% 
+  summarise(median_readlen_rh2=median(new_ReadLen))
+```
+
+Combining the medians of both the replicates into one 
+```{r warning=FALSE, message=FALSE}
+com1 <- merge(x=median_h1, y=median_h2, by="Transcript")
+
+com2 <- merge(x=median_u1, y=median_u2, by="Transcript")
+
+com1 <- merge(x=median_rl1, y=median_rl2, by="Transcript")
+
+com2 <- merge(x=median_rh1, y=median_rh2, by="Transcript")
+```
+
+Taking the average of the medians of both the replicates of each condition
+```{r warning=FALSE, message=FALSE}
+com1$average_h <- (com1$median_readlen_h1+com1$median_readlen_h2)/2
+
+com2$average_u <- (com2$median_readlen_u1+com2$median_readlen_u2)/2
+
+com1$average_rl <- (com1$median_readlen_rl1+com1$median_readlen_rl2)/2
+
+com2$average_rh <- (com2$median_readlen_rh1+com2$median_readlen_rh2)/2
+```
+
+Merging the data of both hdeg and udeg into one
+```{r warning=FALSE, message=FALSE}
+com <- merge(x=com1, y=com2, by="Transcript")
+```
+
+Plot of median read lengths of each condition
+```{r warning=FALSE, message=FALSE}
+ggplot(com, aes(x=average_u, y=average_h))+geom_point(col="black")+theme_classic()+labs(x="Median Read length of Non-degraded", y="Median Read length of Heavily degraded") + ggtitle("Median of read lengths between samples") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + stat_cor(method = "pearson")+ geom_abline(size=1) + geom_abline(intercept = 0, slope = 0.5, col="blue") + geom_abline(intercept = 0, slope = 1.5, col="blue")
+
+ggplot(com, aes(x=average_rh, y=average_rl))+geom_point(col="black")+theme_classic()+labs(x="Median Read length of high RIN", y="Median Read length of low RIN") + ggtitle("Median of read lengths between samples") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + stat_cor(method = "pearson") + geom_abline(size=1) + geom_abline(intercept = 0, slope = 0.5, col="blue") + geom_abline(intercept = 0, slope = 1.5, col="blue")
+
+a <- com
+
+a_filt <- a %>% 
+  filter(average_h > 0.5*average_u, average_h < 1.5*average_u)
+
+#combining these transcripts with our udeg and hdeg data both replicates
+
+u1 <- merge(x=a_filt, y=udeg_rep1, by="Transcript")
+u2 <- merge(x=a_filt, y=udeg_rep2, by="Transcript")
+
+h1 <- merge(x=a_filt, y=hdeg_rep1, by="Transcript")
+h2 <- merge(x=a_filt, y=hdeg_rep2, by="Transcript")
+
+rl1 <- merge(x=a_filt, y=rat_low1, by="Transcript")
+rl2 <- merge(x=a_filt, y=rat_low2, by="Transcript")
+
+rh1 <- merge(x=a_filt, y=rat_high1, by="Transcript")
+rh2 <- merge(x=a_filt, y=rat_high2, by="Transcript")
+
+#merging dets found (41 with deseq2) with a_filt to check ratios of average_h and average_u
+
+f1 <- merge(x=filt2, y=a_filt, by="Transcript")
+
+test <- f1 %>% 
+  dplyr::select(Transcript, average_h, average_u) %>% 
+  mutate(ratio=average_h/average_u)
+
+test1 <- test %>% 
+  mutate(total_average=(average_h+average_u)/2)
+
+ggplot(test1, aes(x=total_average, y=ratio)) +geom_point(col="black")+theme_classic() + labs(x="Average median read lengths", y="Ratio") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18))
+```
+
+median read length between replicates
+heavily degraded
+```{r warning=FALSE, message=FALSE}
+ggplot(com1, aes(x=median_readlen_h1, y=median_readlen_h2))+geom_point(col="black")+theme_classic()+labs(x="Median Read length of replicate 1", y="Median Read length of replicate 2") + ggtitle("Median of read lengths between replicates- Heavily degraded") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + stat_cor(method = "pearson")
+
+ggplot(com2, aes(x=median_readlen_u1, y=median_readlen_u2))+geom_point(col="black")+theme_classic()+labs(x="Median Read length of replicate 1", y="Median Read length of replicate 2") + ggtitle("Median of read lengths between replicates- Non-degraded") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + stat_cor(method = "pearson")
+```
+

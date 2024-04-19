@@ -1,0 +1,233 @@
+---
+title: "separating soft clips at the start and at the end"
+output: html_document
+date: "2023-04-24"
+editor_options: 
+  chunk_output_type: console
+---
+
+This script is about separating 3' and 5' end with and without soft clips. It starts by taking in the output file of parsing_cigar script as the input. 
+
+loading libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+})
+```
+
+Finding soft clips only at the 3' end
+using subset_final (that has come from parsing_cigar script)
+
+counting number of S in the cigar- it will be either 1 or 2. If 1 then soft clip is present either at the start or at the end.
+if 2 then soft clip is present at both the ends. 
+
+Making a new column s_count for the count of S in CIGAR. 
+```{r warning=FALSE, message=FALSE}
+subset_final$s_count=str_count(subset_final$Cigar, "S")
+```
+
+Finding the soft clips at the start and at the end
+```{r warning=FALSE, message=FALSE}
+soft_clip_both <- subset_final %>% 
+  filter(s_count=="2")
+```
+
+applying matcher function- no change in the function, its the same as was used for parsing cigar 
+```{r warning=FALSE, message=FALSE}
+matcher <- function(pattern, x) {
+  ind = gregexpr(pattern, x)[[1]]
+  start = as.numeric(ind)
+  end = start + attr(ind, "match.length") -2
+  apply(cbind(start,end), 1, function(y) substr(x, start=y[1], stop=y[2]));
+}
+```
+
+Doone_start function- this function is finding S at the start (5'end)
+```{r warning=FALSE, message=FALSE}
+doone_start <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  as.numeric(matcher(pat, Cigar))[1]
+}
+```
+
+Cigarsums is finding S 
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone_start, Cigar)
+}
+```
+
+Soft clip at the start of the CIGAR string
+```{r warning=FALSE, message=FALSE}
+addcig_start <- soft_clip_both %>%
+  rowwise %>% mutate(SoftClipStart = cigarsums(Cigar))
+```
+
+This function finding S at the end of the CIGAR string 
+```{r warning=FALSE, message=FALSE}
+doone_end <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  as.numeric(matcher(pat, Cigar))[2]
+}
+```
+
+Cigarsums finding S
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone_end, Cigar)
+}
+```
+
+Adding column that has soft clip end at the end (3' end)
+```{r warning=FALSE, message=FALSE}
+addcig_end <- soft_clip_both %>%
+  rowwise %>% mutate(SoftClipEnd = cigarsums(Cigar))
+```
+
+Merging both the start and end soft clip dataframe
+```{r warning=FALSE, message=FALSE}
+c <- merge(x=addcig_start, y=addcig_end, all=T)
+```
+
+De-selecting the s_count and sequence column as they are not required further. 
+```{r warning=FALSE, message=FALSE}
+merge_soft_clip_both <- c %>% 
+  dplyr::select(-s_count, -Sequence)
+```
+
+
+Soft clip that are either at the start or at the end (s_count=1), we don't know whether its at the start or at the end 
+
+```{r warning=FALSE, message=FALSE}
+soft_clip_one <- subset_final %>% 
+  filter(s_count == "1")
+```
+
+To check if soft clip is at the start we are making another column of called logic which gives output as True or False. 
+To filter out the soft clips at either end we have to convert the logic column as an integer. (True = 1 and False = 0)
+
+```{r warning=FALSE, message=FALSE}
+soft_clip_one$logic <- grepl("S$", soft_clip_one$Cigar)
+soft_clip_one$logic <- as.integer(as.logical(soft_clip_one$logic))
+```
+
+Filtering out the soft clips that are present only at the end. 
+
+```{r warning=FALSE, message=FALSE}
+soft_clip_one_end <- soft_clip_one %>% 
+  filter(logic=="1")
+```
+
+calculating the length of the soft clip at the end using original doone function
+```{r warning=FALSE, message=FALSE}
+doone <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  sum(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Finding S in the CIGAR string
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+Making a separate column for Soft clip at the end and deselecting the s_count, logic and sequence. 
+```{r warning=FALSE, message=FALSE}
+addcig_one_end <- soft_clip_one_end %>%
+  rowwise %>% mutate(SoftClipEnd = cigarsums(Cigar)) %>%
+  dplyr::select(-s_count, -logic, -Sequence)
+```
+
+Filtering out soft clips present at the start
+
+```{r warning=FALSE, message=FALSE}
+soft_clip_one_start <- soft_clip_one %>% 
+  filter(logic=="0")
+```
+
+calculating the length of the soft clip at the start by applying the original doone function
+```{r warning=FALSE, message=FALSE}
+doone <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  sum(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Cigarsums is fincing S in the Cigar string
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+Making a separate column for the length of soft clip at the start and deselecting the sequence, s_count and logic columns
+```{r warning=FALSE, message=FALSE}
+addcig_one_start <- soft_clip_one_start %>%
+  rowwise %>% mutate(SoftClipStart = cigarsums(Cigar)) %>%
+  dplyr::select(-Sequence, -s_count, -logic)
+```
+
+After separating the Soft clips of both the ends, there are few reads that have no soft clips
+
+Reads that do not have soft clip
+```{r warning=FALSE, message=FALSE}
+soft_clip_zero <- subset_final %>% 
+  filter(s_count=="0")
+zero <- soft_clip_zero %>% 
+  dplyr::select(-s_count, -Sequence)
+```
+
+Merging the heavily degraded dataset with all the columns of calculations combined. 
+```{r warning=FALSE, message=FALSE}
+heavily_degraded_1 <- merge(x=addcig_one_end, y=addcig_one_start, all=T)
+b <- merge(x=heavily_degraded_1, y=zero, all=T)
+heavily_degraded_rep_2 <- merge(merge_soft_clip_both, y=b, all=T)
+```
+
+Merging undegraded dataset with all the columns of calculations combined. 
+```{r warning=FALSE, message=FALSE}
+undegraded_1 <- merge(x=addcig_one_end, y=addcig_one_start, all=T)
+b <- merge(x=undegraded_1, y=zero, all=T)
+undegraded_rep_2 <- merge(x=merge_soft_clip_both, y=b, all=T)
+```
+
+Merging mildly degraded dataset with all the columns of the calculations combined. 
+```{r warning= FALSE, message=FALSE}
+mildly_degraded_1 <- merge(x=addcig_one_end, y=addcig_one_start, all=T)
+b <- merge(x=mildly_degraded_1, y=zero, all=T)
+mildly_degraded_rep_2 <- merge(x=merge_soft_clip_both, y=b, all=T)
+```
+
+
+Summation of 3' with no soft clip with soft clip end to get 3' end with soft clip column for all three conditions. 
+```{r warning=FALSE, message=FALSE}
+heavily_degraded_rep_2$end_with_sc <- heavily_degraded_rep_2$end_without_sc + heavily_degraded_rep_2$SoftClipEnd
+
+undegraded_rep_2$end_with_sc <- undegraded_rep_2$end_without_sc + undegraded_rep_2$SoftClipEnd
+
+mildly_degraded_rep_2$end_with_sc <- mildly_degraded_rep_2$end_without_sc + mildly_degraded_rep_2$SoftClipEnd
+```
+
+StartCoord column has 5' end with soft clip. 
+
+Removing soft clip from the start coord to get start without sc for all three conditions. 
+```{r warning=FALSE, message=FALSE}
+heavily_degraded_rep_2$start_without_sc <- heavily_degraded_rep_2$StartCoord - heavily_degraded_rep_2$SoftClipStart
+
+undegraded_rep_2$start_without_sc <- undegraded_rep_2$StartCoord - undegraded_rep_2$SoftClipStart
+
+mildly_degraded_rep_2$start_without_sc <- mildly_degraded_rep_2$StartCoord - mildly_degraded_rep_2$SoftClipStart
+```
+
+The output of the script is all the columns added to the data with and without soft clips at both the ends. 

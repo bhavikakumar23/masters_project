@@ -1,0 +1,305 @@
+---
+title: "3' end filtering full data"
+output: html_document
+date: "2023-09-12"
+editor_options: 
+  chunk_output_type: console
+---
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+  library(slider)
+})
+```
+
+loading replicate 1 data
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/hdeg_combined.csv")
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/udeg_combined.csv")
+```
+
+loading replicate 2 data
+```{r warning=FALSE, message=FALSE}
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/udeg_rep2.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/hdeg_rep2.csv")
+```
+
+Indels and 3' end filtering
+
+Heavy degraded- replicate 1
+```{r warning=FALSE, message=FALSE}
+# Del filtering
+filter1h <- hdeg_rep1 %>% 
+  mutate(filter_1=ifelse(MapLen > 200 & MaxDelLen > 160 , "discard", "not discard"))
+keep1h <- filter1h %>% 
+  filter(filter_1=="not discard")
+
+# Insert filtering
+filter2h <- keep1h %>% 
+  mutate(filter_2=ifelse(MapLen > 200 & MaxInsertLen > 60 , "discard", "not discard"))
+keep2h <- filter2h %>% 
+  filter(filter_2=="not discard")
+
+# Selecting required columns
+test1h <- keep2h %>% 
+  dplyr::select(Read, Transcript, StartCoord, MapLen, DelLen, InsertLen, SoftClipLenSum, NReads, end_without_sc, ReadLen, MaxDelLen, MaxInsertLen, MaxSoftClipLen) %>% 
+  dplyr::group_by(Transcript)
+
+# 3' end filtering
+test_h_order <- test1h[order(test1h$end_without_sc, decreasing = TRUE),]
+
+test2 <- test_h_order %>% 
+  group_by(Transcript, end_without_sc) %>% 
+  mutate(number_of_reads_for_each_len=n()) %>% 
+  ungroup()
+  
+test2h <- test2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(x=cumsum(number_of_reads_for_each_len))
+
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+
+test2h1 <- test2h %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(dif=p(diff(x, lag=20), length(x)))
+
+test2h1$dif[is.na(test2h1$dif)] <- 0
+
+test2h2 <- test2h1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(saturation=end_without_sc[which.max(dif)])
+
+#Subtracting saturation level with 3' end
+test2h2$E <- test2h2$saturation - test2h2$end_without_sc
+test2h2$abs_E <- abs(test2h2$E)
+
+# Keeping reads that are absE < 50
+filter3h <- test2h2 %>% 
+  filter(abs_E < 50)
+
+# Calculating new 3'end 
+filter3h$fragment_len <- filter3h$saturation - filter3h$StartCoord
+```
+
+Selecting required columns
+```{r warning=FALSE, message=FALSE}
+colnames(filter3h)[19] <- "new_3_end"
+colnames(filter3h)[20] <- "new_ReadLen"
+
+hdeg_all_filtering <- filter3h %>% 
+  dplyr::select(Read, Transcript, StartCoord, MapLen, DelLen, InsertLen, SoftClipLenSum, NReads, end_without_sc, ReadLen, MaxDelLen, MaxInsertLen, MaxSoftClipLen, saturation, new_3_end, new_ReadLen)
+```
+
+Undegraded- replicate 1
+```{r warning=FALSE, message=FALSE}
+# Del filtering
+filter1u <- udeg_rep1 %>% 
+  mutate(filter_1=ifelse(MapLen > 200 & MaxDelLen > 160 , "discard", "not discard"))
+keep1u <- filter1u %>% 
+  filter(filter_1=="not discard")
+
+# Insert filtering
+filter2u <- keep1u %>% 
+  mutate(filter_2=ifelse(MapLen > 200 & MaxInsertLen > 60 , "discard", "not discard"))
+keep2u <- filter2u %>% 
+  filter(filter_2=="not discard")
+
+# Selecting required columns
+test1u <- keep2u %>% 
+  dplyr::select(Read, Transcript, StartCoord, MapLen, DelLen, InsertLen, SoftClipLenSum, NReads, end_without_sc, ReadLen, MaxDelLen, MaxInsertLen, MaxSoftClipLen)
+
+# 3' end filtering
+test_u_order <- test1u[order(test1u$end_without_sc, decreasing = TRUE),]
+
+test2u <- test_u_order %>% 
+  group_by(Transcript, end_without_sc) %>% 
+  mutate(number_of_reads_for_each_len=n()) %>% 
+  ungroup()
+  
+test2u_set1 <- test2u %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(x=cumsum(number_of_reads_for_each_len))
+
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+
+test2u_set2 <- test2u_set1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(dif=p(diff(x, lag=20), length(x)))
+
+test2u_set2$dif[is.na(test2u_set2$dif)] <- 0
+
+test2u_set3 <- test2u_set2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(saturation=end_without_sc[which.max(dif)])
+
+#Subtracting saturation level with 3' end
+test2u_set3$E <- test2u_set3$saturation - test2u_set3$end_without_sc
+test2u_set3$abs_E <- abs(test2u_set3$E)
+
+# Keeping reads that are absE < 50
+filter3u <- test2u_set3 %>% 
+  filter(abs_E < 50)
+
+# Calculating new 3'end 
+filter3u$fragment_len <- filter3u$saturation - filter3u$StartCoord
+```
+
+Selecting required columns
+```{r warning=FALSE, message=FALSE}
+colnames(filter3u)[19] <- "new_3_end"
+colnames(filter3u)[20] <- "new_ReadLen"
+
+udeg_all_filtering <- filter3u %>% 
+  dplyr::select(Read, Transcript, StartCoord, MapLen, DelLen, InsertLen, SoftClipLenSum, NReads, end_without_sc, ReadLen, MaxDelLen, MaxInsertLen, MaxSoftClipLen, saturation, new_3_end, new_ReadLen)
+```
+
+Heavy degraded- replicate 2
+
+```{r warning=FALSE, message=FALSE}
+# Del filtering
+filter1h <- hdeg_rep2 %>% 
+  mutate(filter_1=ifelse(MapLen > 200 & MaxDelLen > 160 , "discard", "not discard"))
+keep1h <- filter1h %>% 
+  filter(filter_1=="not discard")
+
+# Insert filtering
+filter2h <- keep1h %>% 
+  mutate(filter_2=ifelse(MapLen > 200 & MaxInsertLen > 60 , "discard", "not discard"))
+keep2h <- filter2h %>% 
+  filter(filter_2=="not discard")
+
+# Selecting required columns
+test1h <- keep2h %>% 
+  dplyr::select(Read, Transcript, StartCoord, MapLen, DelLen, InsertLen, SoftClipLenSum, NReads, end_without_sc, ReadLen, MaxDelLen, MaxInsertLen, MaxSoftClipLen) %>% 
+  dplyr::group_by(Transcript)
+
+# 3' end filtering
+test_h_order <- test1h[order(test1h$end_without_sc, decreasing = TRUE),]
+
+test2 <- test_h_order %>% 
+  group_by(Transcript, end_without_sc) %>% 
+  mutate(number_of_reads_for_each_len=n()) %>% 
+  ungroup()
+  
+test2h <- test2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(x=cumsum(number_of_reads_for_each_len))
+
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+
+test2h1 <- test2h %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(dif=p(diff(x, lag=20), length(x)))
+
+test2h1$dif[is.na(test2h1$dif)] <- 0
+
+test2h2 <- test2h1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(saturation=end_without_sc[which.max(dif)])
+
+#Subtracting saturation level with 3' end
+test2h2$E <- test2h2$saturation - test2h2$end_without_sc
+test2h2$abs_E <- abs(test2h2$E)
+
+# Keeping reads that are absE < 50
+filter3h <- test2h2 %>% 
+  filter(abs_E < 50)
+
+# Calculating new 3'end 
+filter3h$fragment_len <- filter3h$saturation - filter3h$StartCoord
+```
+
+Selecting required columns
+```{r warning=FALSE, message=FALSE}
+colnames(filter3h)[19] <- "new_3_end"
+colnames(filter3h)[20] <- "new_ReadLen"
+
+hdeg_all_filtering <- filter3h %>% 
+  dplyr::select(Read, Transcript, StartCoord, MapLen, DelLen, InsertLen, SoftClipLenSum, NReads, end_without_sc, ReadLen, MaxDelLen, MaxInsertLen, MaxSoftClipLen, saturation, new_3_end, new_ReadLen)
+```
+
+Undegraded - replicate 2
+```{r warning=FALSE, message=FALSE}
+# Del filtering
+filter1u <- udeg_rep2 %>% 
+  mutate(filter_1=ifelse(MapLen > 200 & MaxDelLen > 160 , "discard", "not discard"))
+keep1u <- filter1u %>% 
+  filter(filter_1=="not discard")
+
+# Insert filtering
+filter2u <- keep1u %>% 
+  mutate(filter_2=ifelse(MapLen > 200 & MaxInsertLen > 60 , "discard", "not discard"))
+keep2u <- filter2u %>% 
+  filter(filter_2=="not discard")
+
+# Selecting required columns
+test1u <- keep2u %>% 
+  dplyr::select(Read, Transcript, StartCoord, MapLen, DelLen, InsertLen, SoftClipLenSum, NReads, end_without_sc, ReadLen, MaxDelLen, MaxInsertLen, MaxSoftClipLen)
+
+# 3' end filtering
+test_u_order <- test1u[order(test1u$end_without_sc, decreasing = TRUE),]
+
+test2u <- test_u_order %>% 
+  group_by(Transcript, end_without_sc) %>% 
+  mutate(number_of_reads_for_each_len=n()) %>% 
+  ungroup()
+  
+test2u_set1 <- test2u %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(x=cumsum(number_of_reads_for_each_len))
+
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+
+test2u_set2 <- test2u_set1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(dif=p(diff(x, lag=20), length(x)))
+
+test2u_set2$dif[is.na(test2u_set2$dif)] <- 0
+
+test2u_set3 <- test2u_set2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  mutate(saturation=end_without_sc[which.max(dif)])
+
+#Subtracting saturation level with 3' end
+test2u_set3$E <- test2u_set3$saturation - test2u_set3$end_without_sc
+test2u_set3$abs_E <- abs(test2u_set3$E)
+
+# Keeping reads that are absE < 50
+filter3u <- test2u_set3 %>% 
+  filter(abs_E < 50)
+
+# Calculating new 3'end 
+filter3u$fragment_len <- filter3u$saturation - filter3u$StartCoord
+```
+
+Selecting required columns
+```{r warning=FALSE, message=FALSE}
+colnames(filter3u)[19] <- "new_3_end"
+colnames(filter3u)[20] <- "new_ReadLen"
+
+udeg_all_filtering <- filter3u %>% 
+  dplyr::select(Read, Transcript, StartCoord, MapLen, DelLen, InsertLen, SoftClipLenSum, NReads, end_without_sc, ReadLen, MaxDelLen, MaxInsertLen, MaxSoftClipLen, saturation, new_3_end, new_ReadLen)
+```

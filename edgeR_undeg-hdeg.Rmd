@@ -1,0 +1,321 @@
+---
+title: "edgeR_undeg-hdeg"
+output: html_document
+date: "2023-08-29"
+editor_options: 
+  chunk_output_type: console
+---
+
+Running edgeR first on unfiltered undeg and hdeg data
+
+loading libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+  library(edgeR)
+  library(coriell)
+})
+```
+
+Without nanocount
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep1.csv")
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep1.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep2.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep2.csv")
+```
+
+With nanocount Data
+```{r warning=FALSE, message=FALSE}
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/udeg_rep1_nano.csv")
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/hdeg_rep1_nano.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/udeg_rep2_nano.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/hdeg_rep2_nano.csv")
+```
+
+Without nanocount + filtering (indels + 3' end)
+```{r warning=FALSE, message=FALSE}
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/udeg_rep1_all_filtering.csv")
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/hdeg_rep1_all_filtering.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/udeg_rep2_all_filtering.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/hdeg_rep2_all_filtering.csv")
+```
+
+adding the name of the condition column in all the datasets
+```{r warning=FALSE, message=FALSE}
+udeg_rep1$condition <- "undegraded_1"
+hdeg_rep1$condition <- "heavy_degraded_1"
+udeg_rep2$condition <- "undegraded_2"
+hdeg_rep2$condition <- "heavy_degraded_2"
+```
+
+selecting the required columns
+```{r warning=FALSE, message=FALSE}
+udeg_1 <- udeg_rep1 %>% 
+  dplyr::select(Transcript, condition)
+hdeg_1 <- hdeg_rep1 %>% 
+  dplyr::select(Transcript, condition)
+udeg_2 <- udeg_rep2 %>% 
+  dplyr::select(Transcript, condition)
+hdeg_2 <- hdeg_rep2 %>% 
+  dplyr::select(Transcript, condition)
+```
+
+Grouping the data by transcripts and then find the number of reads of each transcript and reading the column condition as to calculate number of reads using summarise command
+```{r warning=FALSE, message=FALSE}
+ugrp1 <- udeg_1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+ugrp1$condition <- "undegraded_1"
+
+hgrp1 <- hdeg_1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+hgrp1$condition <- "heavy_degraded_1"
+
+ugrp2 <- udeg_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+ugrp2$condition <- "undegraded_2"
+
+hgrp2 <- hdeg_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+hgrp2$condition <- "heavy_degraded_2"
+```
+
+Merging the data to get one dataset for all the number of reads of each transcript in each condition
+```{r warning=FALSE, message=FALSE}
+deg_1 <- merge(x=ugrp1, y=hgrp1, all=T)
+deg_2 <- merge(x=ugrp2, y=hgrp2, all=T)
+
+data_hu <- merge(x=deg_1, y=deg_2, all=T)
+```
+
+Converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data_hu[is.na(data_hu)]=0
+```
+
+Formatting the data as required by deseq2 and converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data <- pivot_wider(data_hu, names_from = condition, values_from = nreads)
+data[is.na(data)] <- 0
+```
+
+Constructing a deseq dataset object by converting it into matrix and converting the number of reads into integer
+```{r warning=FALSE, message=FALSE}
+countData <- as.matrix(data[ ,-1])
+colnames(countData)=c("hdeg2", "hdeg1", "undeg2", "undeg1")
+rownames(countData)=data$Transcript
+```
+
+making a DGE object
+```{r warning=FALSE, message=FALSE}
+group <- c("degraded","degraded","control", "control")
+d <- DGEList(counts=countData,group=factor(group))
+```
+
+Keeping the transcripts that have greater than 5 reads in at least 2 conditions
+```{r warning=FALSE, message=FALSE}
+dim(d)
+d.full <- d
+head(d.full$counts)
+apply(d.full$counts, 2, sum)
+
+keep <- rowSums(d.full$counts > 5) >= 2
+d.full <- d.full[keep,]
+dim(d.full)
+```
+
+Counts per million 
+```{r warning=FALSE, message=FALSE}
+cpm_data <- cpm(d.full)
+```
+
+Normalising the counts
+```{r warning=FALSE, message=FALSE}
+d.full <- calcNormFactors(d.full)
+```
+
+Exploring the data to see if the replicates are similar
+```{r warning=FALSE, message=FALSE}
+plotMDS(d.full, method = "bcv", col=as.numeric(d.full$samples$group))
+```
+
+Estimating common dispersion
+```{r warning=FALSE, message=FALSE}
+d1 <- estimateCommonDisp(d.full, verbose = T)
+names(d1)
+```
+
+Estimating Tagwise dispersion
+```{r warning=FALSE, message=FALSE}
+d1 <- estimateTagwiseDisp(d1)
+names(d1)
+```
+
+Plotting BCV- plots the tagwise biological coefficient of variation (square root of dispersions) against log2-CPM
+```{r warning=FALSE, message=FALSE}
+plotBCV(d1)
+```
+
+Differential expression-
+Top tags extracts the most differentially expressed genes either ranked by the p-value or by absolute log-fold change
+```{r warning=FALSE, message=FALSE}
+et <- exactTest(d1)
+results <- topTags(et, n = nrow(countData), sort.by = "none")
+```
+
+decideTestDGE identifies which genes are significantly differentially expressed from an edgeR fit object containing p-values and test statistics
+total number od differentially expressed genes at FDR < 0.05
+```{r warning=FALSE, message=FALSE}
+de1 <- decideTestsDGE(et, adjust.method = "BH", p.value = 0.05, lfc = 1)
+summary(de1)
+```
+
+The function plotsmear generates a plot of the tagwise fold change against log-CPM (analogous to MA plot). DE tags are highlighted on the plot
+```{r warning=FALSE, message=FALSE}
+deltags <- rownames(d1)[as.logical(de1)]
+plotSmear(et, de.tags = deltags)
+abline(h=c(-1,1), col="blue")
+```
+
+
+Without nanocount
+```{r warning=FALSE, message=FALSE}
+res_without_nano <- edger_to_df(results)
+colnames(res_without_nano)[1] <- "transcript"  # FDR is adj p_value
+
+res_without_nano$diffexpressed <- "NO"
+res_without_nano$diffexpressed[res_without_nano$logFC > 1 & res_without_nano$FDR < 0.05] <- "UP"
+res_without_nano$diffexpressed[res_without_nano$logFC < -1 & res_without_nano$FDR < 0.05] <- "DOWN"
+
+z <- res_without_nano %>% 
+  filter(diffexpressed=="DOWN")
+```
+
+With Nanocount
+```{r warning=FALSE, message=FALSE}
+res_with_nano <- edger_to_df(results)
+colnames(res_with_nano)[1] <- "transcript"  # FDR is adj p_value
+
+res_with_nano$diffexpressed <- "NO"
+res_with_nano$diffexpressed[res_with_nano$logFC > 1 & res_with_nano$FDR < 0.05] <- "UP"
+res_with_nano$diffexpressed[res_with_nano$logFC < -1 & res_with_nano$FDR < 0.05] <- "DOWN"
+
+z <- res_with_nano %>% 
+  filter(diffexpressed=="UP")
+```
+
+Without nanocount + filtering
+```{r warning=FALSE, message=FALSE}
+res_without_nano_f <- edger_to_df(results)
+colnames(res_without_nano_f)[1] <- "Transcript"  # FDR is adj p_value
+
+res_without_nano_f$diffexpressed <- "NO"
+res_without_nano_f$diffexpressed[res_without_nano_f$logFC > 1 & res_without_nano_f$FDR < 0.05] <- "UP"
+res_without_nano_f$diffexpressed[res_without_nano_f$logFC < -1 & res_without_nano_f$FDR < 0.05] <- "DOWN"
+
+z <- res_without_nano_f %>% 
+  filter(diffexpressed=="UP")
+```
+
+Bar plot for library size after normalisation of the counts
+```{r warning=FALSE, message=FALSE}
+barplot(d.full$samples$lib.size*1e-6, ylab = "library size (in million)")
+```
+
+
+#########################################################################################
+Finding common transcripts
+```{r warning=FALSE, message=FALSE}
+a_without_nano <- res_without_nano %>% 
+  filter(diffexpressed=="UP" | diffexpressed=="DOWN") %>% 
+  dplyr::select(transcript, diffexpressed)
+a_with_nano <- res_with_nano %>% 
+  filter(diffexpressed=="UP" | diffexpressed=="DOWN") %>%
+  dplyr::select(transcript, diffexpressed)
+a_without_nano_f <- res_without_nano_f %>% 
+  filter(diffexpressed=="UP" | diffexpressed=="DOWN") %>% 
+  dplyr::select(transcript, diffexpressed)
+
+z <- a_without_nano_f %>% 
+  mutate(in_a_with_nanocount=transcript %in% str_extract(a_with_nano$transcript, "^[^\\|]*"))
+filter1 <- z %>% 
+  filter(in_a_with_nanocount=="TRUE")
+
+common_rows_1 <- generics::intersect(a_without_nano, a_with_nano)
+common_rows_2 <- generics::intersect(common_rows_1, a_without_nano_f)
+```
+
+Exploring the dets- found after filtration
+
+res_without_nano_f
+separating dets, up and down regulated transcripts
+```{r warning=FALSE, message=FALSE}
+z_up <- res_without_nano_f %>% 
+  filter(diffexpressed=="UP")
+z_down <- res_without_nano_f %>% 
+  filter(diffexpressed=="DOWN")
+z_det <- res_without_nano_f %>% 
+  filter(diffexpressed=="UP" | diffexpressed=="DOWN")
+```
+
+changing the colname
+```{r warning=FALSE, message=FALSE}
+colnames(z_up)[1] <- "Transcript"
+colnames(z_down)[1] <- "Transcript"
+colnames(z_det)[1] <- "Transcript"
+```
+
+Merging datasets to get transcript length or read length
+```{r warning=FALSE, message=FALSE}
+merged_tx <- merge(x=udeg_rep1_txlen, y=z_det, by="Transcript")
+
+merged_u <- merge(x=udeg_all_filtering, y=z_det, by="Transcript") #udeg_rep1 is data after filtration
+merged_h filtering, y=z_det, by="Transcript") #hdeg_rep1 is data after filtration
+```
+
+merging datasets to get read lengths - merged to the datasets after filtration
+```{r warning=FALSE, message=FALSE}
+up_merge_u <- merge(x=udeg_rep1_txlen, y=z_up, by="Transcript")
+down_merge_u <- merge(x=udeg_rep1_txlen, y=z_down, by="Transcript")
+
+up_merge_h <- merge(x=hdeg_rep1, y=z_up, by="Transcript")
+down_merge_h <- merge(x=hdeg_rep1, y=z_down, by="Transcript")
+```
+
+transcript length distribution
+```{r warning=FALSE, message=FALSE}
+ggplot(up_merge, aes(x=Transcript_len)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Upregulated transcripts- TL distribution- undeg_rep 1") + theme_bw()+ theme(axis.text=element_text(size=14), axis.title=element_text(size=16))
+
+ggplot(down_merge, aes(x=Transcript_len)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Down regulated transcripts- TL distribution- undeg_rep 1") + theme_bw()+ theme(axis.text=element_text(size=14), axis.title=element_text(size=16))
+
+ggplot() + aes(Transcript_length) + geom_histogram(binwidth = 1, col="blue") + ggtitle("DETs- TL distribution- undeg_rep 1") + theme_bw()+ theme(axis.text=element_text(size=14), axis.title=element_text(size=16))
+```
+
+Read length distribution
+```{r warning=FALSE, message=FALSE}
+ggplot(merged, aes(x=new_ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("DETs- Distribution plot of read lengths- non-degraded") + theme_bw() + labs(x="Read Length", y="Number of Reads") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + xlim(0,3000)
+
+ggplot(merged_h, aes(x=new_ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("DETs- Distribution plot of read lengths- heavily degraded") + theme_bw() + labs(x="Read Length", y="Number of Reads") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + xlim(0,3000)
+
+ggplot(udeg_all_filtering, aes(x=new_ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Distribution plot of read lengths- non-degraded") + theme_bw() + labs(x="Read Length", y="Number of Reads") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + xlim(0,3000)
+
+ggplot(hdeg_all_filtering, aes(x=new_ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Distribution plot of read lengths- heavily degraded") + theme_bw() + labs(x="Read Length", y="Number of Reads") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + xlim(0,3000)
+```
+
+

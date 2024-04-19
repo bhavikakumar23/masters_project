@@ -1,0 +1,313 @@
+---
+title: "Nanograd"
+author: "Bhavika Kumar"
+date: "2023-03-20"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+This script is taking in the bam file converting into data frame and parsing cigar to get map, del, insert and sum of soft clip len and also max del len, max insert len and max soft clip len. 
+
+The output of the script is the dataframe that has all the lens calculated, including the read len and the number of reads a transcript has. 
+
+The script contains paths to all three bam files (undegraded, heavily degraded and mildly degraded)
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+})
+```
+
+Importing a Bam file
+1. Heavily Degraded sample- rep 1
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/bam_files/all.5mM_MgCl_degrdation_pass1.fastq.gz.sorted.bam")
+```
+
+Subset bam file- degraded
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/bam_files/subset_heavy.bam")
+```
+
+Rep 2
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/bam_files/all.5mM_MgCl_degrdation_pass2.fastq.gz.sorted.bam")
+```
+
+
+2. Undegraded sample- rep 1
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/bam_files/all.undegraded_hek293_pass1.fastq.gz.sorted.bam")
+```
+
+Subset bam file- undegraded
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/bam_files/subset_un.bam")
+```
+
+Rep 2
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/bam_files/all.undegraded_hek293_pass2.fastq.gz.sorted.bam")
+```
+
+
+3. Mildly degraded sample
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/bam_files/primary_mild_degradataion_rep1.fastq.bam_sorted_primary.bam")
+```
+
+Subset bam file - mildly degraded
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/bam_files/subset_md.bam")
+```
+
+Rep 2
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/bam_files/primary_mild_degradataion_rep2.fastq.bam_sorted_primary.bam")
+```
+
+
+Function for collapsing the list of lists into a single list as per the Rsamtools vignette
+```{r warning=FALSE, message=FALSE}
+.unlist <- function (x){
+  ## do.call(c, ...) coerces factor to integer, which is undesired
+  x1 <- x[[1L]]
+  if (is.factor(x1)){
+    structure(unlist(x), class = "factor", levels = levels(x1))
+  } else {
+    do.call(c, x)
+  }
+}
+```
+
+Store names of BAM fields
+```{r warning=FALSE, message=FALSE}
+bam_field <- names(bam_file[[1]])
+```
+
+go through each BAM field and unlist
+```{r warning=FALSE, message=FALSE}
+list <- lapply(bam_field, function(y) .unlist(lapply(bam_file, "[[", y)))
+```
+
+Storing the data as data frame
+```{r warning=FALSE, message=FALSE}
+bam_df <- do.call("DataFrame", list)
+names(bam_df) <- bam_field
+```
+
+converting bam_df into data frame without the package Rsamtools
+```{r warning=FALSE, message=FALSE}
+df <- as.data.frame(bam_df)
+```
+
+selecting columns required for analysis
+```{r warning=FALSE, message=FALSE}
+input <- df %>% 
+  dplyr::select(1,3,5,8,12) %>% 
+  dplyr::rename(Read = 1, Transcript = 2, StartCoord = 3, Cigar = 4, Sequence = 5)
+```
+
+
+
+## Parsing CIGAR- This matcher and doone function parses all the M, I, D and S in the full cigar string 
+
+Matcher function
+```{r warning=FALSE, message=FALSE}
+matcher <- function(pattern, x) {
+  ind = gregexpr(pattern, x)[[1]]
+  start = as.numeric(ind)
+  end = start + attr(ind, "match.length")- 2
+  apply(cbind(start,end), 1, function(y) substr(x, start=y[1], stop=y[2]));
+}
+```
+
+Doone function- This takes the sum of all the M, I, D and S
+```{r warning=FALSE, message=FALSE}
+doone <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  sum(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Finding Matches/Deletions/Insertions/Soft Clip
+1. Match
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("M")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates matches - applying cigarsums function to each row of the input to calculate the total mapped length
+```{r warning=FALSE, message=FALSE}
+addcig_1 <- input %>%
+  rowwise %>% mutate(MapLen = cigarsums(Cigar))
+```
+
+2. Deletion
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("D")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates deletions- we apply the cigarsums function to each row of the input to calculate the total length that is deleted
+```{r warning=FALSE, message=FALSE}
+addcig_2 <- input %>%
+  rowwise %>% mutate(DelLen = cigarsums(Cigar))
+```
+
+3. Insertion
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("I")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates insertions- applying cigarsums function to each row of the input to calculate the length that is inserted
+```{r warning=FALSE, message=FALSE}
+addcig_3 <- input %>%
+  rowwise %>% mutate(InsertLen = cigarsums(Cigar))
+```
+
+4. Soft clipping (S)
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates Soft clip length- total sum on both the ends
+```{r warning=FALSE, message=FALSE}
+addcig_4 <- input %>%
+  rowwise %>% mutate(SoftClipLenSum = cigarsums(Cigar))
+```
+
+
+Calculating the max lens- max del len, max insert len and max soft clip len
+
+Doone_1 function is calculating the max len in the string
+```{r warning=FALSE, message=FALSE}
+doone_1 <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  max(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Max del len
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("D")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_5 <- input %>% 
+  rowwise %>% mutate(MaxDelLen = cigarsums(Cigar))
+```
+
+Max insert len
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("I")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_6 <- input %>% 
+  rowwise %>% mutate(MaxInsertLen = cigarsums(Cigar))
+```
+
+Max soft clip len 
+
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_7 <- input %>% 
+  rowwise %>% mutate(MaxSoftClipLen = cigarsums(Cigar))
+```
+
+
+Merging all the addcig data frames into one data frame
+```{r warning=FALSE, message=FALSE}
+merged_1 <- merge(x=addcig_1, y= addcig_2, all=T)
+merged_2 <- merge(x=addcig_3, y=addcig_4, all=T)
+merge_cigars_sum <- merge(x=merged_1, y=merged_2, all=T)
+
+merged_3 <- merge(x=addcig_5, y=addcig_6, all=T)
+merged_4 <- merge(x=addcig_7, y=addcig_8, all=T)
+merge_cigar_max <- merge(x=merged_3, y=merged_4, all=T)
+
+merge_cigar <- merge(x=merge_cigars_sum, y=merge_cigar_max, all=T)
+```
+
+
+calculating number of reads of each transcript
+```{r warning=FALSE, message=FALSE}
+parse_cigar_n <- merge_cigar %>% 
+  group_by(Transcript) %>% 
+  mutate(NReads=n()) %>% 
+  ungroup()
+```
+
+Function to calculate the 3' end coordinate
+```{r warning=FALSE, message=FALSE}
+subset_1 <- parse_cigar_n %>% as_tibble() %>% 
+  rowwise() %>% 
+  mutate(L = sum(c_across(c(6:7))))       # L is taking the sum of MapLen and DelLen
+
+end_coord <- function(StartCoord, L) {
+  end <- StartCoord + L - 1
+  return(end)
+}
+```
+
+Calculating the end coordinate without soft clip (sc) row wise and making a new column in the data frame as end_without_sc
+
+```{r warning=FALSE, message=FALSE}
+subset_2 <- subset_1 %>% 
+  rowwise() %>% 
+  mutate(end_without_sc = end_coord(StartCoord, L))
+```
+
+Getting read length from seq column by taking the sum of map len, del len and insert len. include soft clip or not has to be decided???
+
+```{r warning=FALSE, message=FALSE}
+subset_final <- subset_2 %>% 
+  mutate(ReadLen=sum(c_across(c(6:8))))
+```
+
+subset_final dataset has the following columns- 
+1. Read, 
+2. Transcript, 
+3. StartCoord(5' end), 
+4. Cigar, 
+5. Sequence, 
+6. MapLen, 
+7. DelLen, 
+8. InsertLen, 
+9. Sum of soft clips at both the ends, 
+10. NReads(number of reads of each transcript), 
+11. L (sum of map and del len), 
+12. end without sc, 
+13. Read len (calculated by taking the sum of map len, del len and insert len)
+14. MaxDelLen
+15. MaxInsertLen
+16. MaxSoftClipLen
+
+If separate 3' and 5' end soft clips required, its in 'separating_soft_clips_start_and_end' Rmd. 

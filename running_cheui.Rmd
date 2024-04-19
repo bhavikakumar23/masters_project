@@ -1,0 +1,57 @@
+---
+title: "running_cheui"
+output: html_document
+date: "2023-05-26"
+editor_options: 
+  chunk_output_type: console
+---
+
+loading libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+})
+```
+
+importing data
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/heavily_degraded.csv")
+mdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/mildly_degraded.csv")
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/undegraded.csv")
+```
+
+making a column for number of reads and arranging them in descending order
+undegraded dataset
+```{r warning=FALSE, message=FALSE}
+u1 <- udeg_rep1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads_u=n())
+u2 <- u1 %>% 
+  arrange(desc(nreads_u))
+```
+
+heavy degraded dataset
+```{r warning=FALSE, message=FALSE}
+h1 <- hdeg_rep1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads_h=n())
+h2 <- h1 %>% 
+  arrange(desc(nreads_h))
+```
+
+merging the datasets
+```{r warning=FALSE, message=FALSE}
+final <- merge(x=u2, y=h2)
+f1 <- final %>% 
+  arrange(desc(nreads_u))
+```
+

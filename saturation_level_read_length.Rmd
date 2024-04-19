@@ -1,0 +1,329 @@
+---
+title: "sliding_window_3'_ end"
+output: html_document
+date: "2023-05-16"
+editor_options: 
+  chunk_output_type: console
+---
+
+The script is about defining the sliding window for the 3' end filtering. The aim of this filtering is to remove reads whose 3' end does not correspond to the 3' end of the transcript. Its calculating the saturation level based on the read length. 
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+  library(slider)
+})
+```
+
+loading replicate 1 data
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/heavily_degraded.csv")
+mdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/mildly_degraded.csv")
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/undegraded.csv")
+```
+
+loading replicate 2 data
+```{r warning=FALSE, message=FALSE}
+udeg_rep_2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/undegraded_rep_2.csv")
+mdeg_rep_2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/mildly_degraded_rep_2.csv")
+hdeg_rep_2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data/csv_files/heavily_degraded_rep_2.csv")
+```
+
+Nanocount output data
+```{r warning=FALSE, message=FALSE}
+hdeg_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/primary_align_nano_hdeg_pass1.csv")
+
+udeg_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/primary_align_nano_udeg_pass1.csv")
+```
+
+selecting the columns of Read, Transcript, ReadLen and end_without_sc columns
+```{r warning=FALSE, message=FALSE}
+test1h <- hdeg_rep1 %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc)
+test1hna <- hdeg_nano %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc)
+
+test1u <- udeg_rep1 %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc)
+test1una <- udeg_nano %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc)
+```
+
+filtering one transcript for testing
+```{r warning=FALSE, message=FALSE}
+test_filterh <- test1h %>% 
+  filter(Transcript=="ENST00000361575.4")
+test_filterhna <- test1hna %>% 
+  filter(Transcript=="ENST00000361575.4")
+
+test_filteru <- test1u %>% 
+  filter(Transcript=="ENST00000361575.4")
+test_filteruna <- test1una %>% 
+  filter(Transcript=="ENST00000361575.4")
+```
+
+calculating frequency of the read length to get the saturation point
+```{r warning=FALSE, message=FALSE}
+test_h_order <- test_filterh[order(test_filterh$ReadLen, decreasing = TRUE),]
+
+test2 <- test_h_order %>% 
+  group_by(ReadLen) %>% 
+  mutate(number_of_reads_for_each_len=n())
+
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+
+test2$x <- cumsum(test2$number_of_reads_for_each_len)
+test2$dif <- p(diff(test2$x, lag=20), length(test2$x))
+test2$dif[is.na(test2$dif)] <- 0
+
+test2$saturation <- test2$ReadLen[which.max(test2$dif)] + 20
+```
+
+undeg
+```{r warning=FALSE, message=FALSE}
+test_u_order <- test_filteru[order(test_filteru$ReadLen, decreasing = TRUE),]
+
+test2u <- test_u_order %>% 
+  group_by(ReadLen) %>% 
+  mutate(number_of_reads_for_each_len=n())
+
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+
+test2u$x <- cumsum(test2u$number_of_reads_for_each_len)
+test2u$dif <- p(diff(test2u$x, lag=20), length(test2u$x))
+test2u$dif[is.na(test2u$dif)] <- 0
+
+test2u$saturation <- test2u$ReadLen[which.max(test2u$dif)] + 20
+```
+
+hdeg- with nanocount
+```{r warning=FALSE, message=FALSE}
+test_hna_order <- test_filterhna[order(test_filterhna$ReadLen, decreasing = TRUE),]
+
+test2hna <- test_hna_order %>% 
+  group_by(ReadLen) %>% 
+  mutate(number_of_reads_for_each_len=n())
+
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+
+test2hna$x <- cumsum(test2hna$number_of_reads_for_each_len)
+test2hna$dif <- p(diff(test2hna$x, lag=20), length(test2hna$x))
+test2hna$dif[is.na(test2hna$dif)] <- 0
+
+test2hna$saturation <- test2hna$ReadLen[which.max(test2hna$dif)] + 20
+```
+
+undeg- with nanocount
+```{r warning=FALSE, message=FALSE}
+test_una_order <- test_filteruna[order(test_filteruna$ReadLen, decreasing = TRUE),]
+
+test2una <- test_una_order %>% 
+  group_by(ReadLen) %>% 
+  mutate(number_of_reads_for_each_len=n())
+
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+
+test2una$x <- cumsum(test2una$number_of_reads_for_each_len)
+test2una$dif <- p(diff(test2una$x, lag=20), length(test2una$x))
+test2una$dif[is.na(test2una$dif)] <- 0
+
+test2una$saturation <- test2una$ReadLen[which.max(test2una$dif)] + 20
+```
+
+subtracting the saturation point with the end_without_sc column
+```{r warning=FALSE, message=FALSE}
+test2$E <- test2$saturation - test2$end_without_sc
+test2$abs_E <- abs(test2$E)
+
+test2u$E <- test2u$saturation - test2u$end_without_sc
+test2u$abs_E <- abs(test2u$E)
+
+test2hna$E <- test2hna$saturation - test2hna$end_without_sc
+test2hna$abs_E <- abs(test2hna$E)
+
+test2una$E <- test2una$saturation - test2una$end_without_sc
+test2una$abs_E <- abs(test2una$E)
+```
+
+selecting required columns
+```{r warning=FALSE, message=FALSE}
+test_h_select <- test2 %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc, number_of_reads_for_each_len, saturation, abs_E)
+
+test_u_select <- test2u %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc, number_of_reads_for_each_len, saturation, abs_E)
+
+test_hna_select <- test2hna %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc, number_of_reads_for_each_len, saturation, abs_E)
+
+test_una_select <- test2una %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc, number_of_reads_for_each_len, saturation, abs_E)
+```
+
+using cutoffs to filter out the reads
+heavy degraded
+```{r warning=FALSE, message=FALSE}
+test_h_100 <- test_h_select %>% 
+  filter(abs_E < 100)
+
+test_h_75 <- test_h_select %>% 
+  filter(abs_E < 75)
+
+test_h_125 <- test_h_select %>% 
+  filter(abs_E < 125)
+
+test_h_50 <- test_h_select %>% 
+  filter(abs_E < 50)
+```
+
+adding filteration condition in the data
+```{r warning=FALSE, message=FALSE}
+test_h_100$f <- "abs_E < 100"
+test_h_75$f <- "abs_E < 75"
+test_h_125$f <- "abs_E < 125"
+test_h_50$f <- "abs_E < 50"
+
+merged_1 <- merge(x=test_h_100, y=test_h_125, all=T)
+merged_2 <- merge(x=test_h_50, y=test_h_75, all=T)
+merge_h <- merge(x=merged_1, y=merged_2, all=T)
+```
+
+heavy degraded with nanocount
+```{r warning=FALSE, message=FALSE}
+test_hna_100 <- test_hna_select %>% 
+  filter(abs_E < 100)
+
+test_hna_75 <- test_hna_select %>% 
+  filter(abs_E < 75)
+
+test_hna_125 <- test_hna_select %>% 
+  filter(abs_E < 125)
+
+test_hna_50 <- test_hna_select %>% 
+  filter(abs_E < 50)
+```
+
+adding filteration condition in the data
+```{r warning=FALSE, message=FALSE}
+test_hna_100$f <- "abs_E < 100"
+test_hna_75$f <- "abs_E < 75"
+test_hna_125$f <- "abs_E < 125"
+test_hna_50$f <- "abs_E < 50"
+
+merged_1 <- merge(x=test_hna_100, y=test_hna_125, all=T)
+merged_2 <- merge(x=test_hna_50, y=test_hna_75, all=T)
+merge_hna <- merge(x=merged_1, y=merged_2, all=T)
+```
+
+undegraded
+```{r warning=FALSE, message=FALSE}
+test_u_100 <- test_u_select %>% 
+  filter(abs_E < 100)
+
+test_u_75 <- test_u_select %>% 
+  filter(abs_E < 75)
+
+test_u_125 <- test_u_select %>% 
+  filter(abs_E < 125)
+
+test_u_50 <- test_u_select %>% 
+  filter(abs_E < 50)
+```
+
+adding filteration condition in the data
+```{r warning=FALSE, message=FALSE}
+test_u_100$f <- "abs_E < 100"
+test_u_75$f <- "abs_E < 75"
+test_u_125$f <- "abs_E < 125"
+test_u_50$f <- "abs_E < 50"
+
+merged_1 <- merge(x=test_u_100, y=test_u_125, all=T)
+merged_2 <- merge(x=test_u_50, y=test_u_75, all=T)
+merge_u <- merge(x=merged_1, y=merged_2, all=T)
+```
+
+undegraded with nanocount
+```{r warning=FALSE, message=FALSE}
+test_una_100 <- test_una_select %>% 
+  filter(abs_E < 100)
+
+test_una_75 <- test_una_select %>% 
+  filter(abs_E < 75)
+
+test_una_125 <- test_una_select %>% 
+  filter(abs_E < 125)
+
+test_una_50 <- test_una_select %>% 
+  filter(abs_E < 50)
+```
+
+adding filteration condition in the data
+```{r warning=FALSE, message=FALSE}
+test_una_100$f <- "abs_E < 100"
+test_una_75$f <- "abs_E < 75"
+test_una_125$f <- "abs_E < 125"
+test_una_50$f <- "abs_E < 50"
+
+merged_1 <- merge(x=test_una_100, y=test_una_125, all=T)
+merged_2 <- merge(x=test_una_50, y=test_una_75, all=T)
+merge_una <- merge(x=merged_1, y=merged_2, all=T)
+```
+
+plotting these three on a single plot with different cut offs
+```{r warning=FALSE, message=FALSE}
+ggplot(merge_h, aes(x=abs_E, y=1:nrow(merge_h), col=f)) + geom_point() + ggtitle("Heavy degraded without Nanocount- ENST00000084795.9") + theme_bw() + scale_x_continuous(limits = c(0,125))+ scale_y_continuous(limits = c(0,4500))
+
+ggplot(merge_hna, aes(x=abs_E, y=1:nrow(merge_hna), col=f)) + geom_point() + ggtitle("Heavy degraded with Nanocount- ENST00000084795.9") + theme_bw() + scale_x_continuous(limits = c(0,125))+ scale_y_continuous(limits = c(0,4500))
+
+ggplot(merge_u, aes(x=abs_E, y=1:nrow(merge_u), col=f)) + geom_point() + ggtitle("Undegraded without Nanocount- ENST00000084795.9") + theme_bw() + scale_x_continuous(limits = c(0,125))+ scale_y_continuous(limits = c(0,16000))
+
+ggplot(merge_una, aes(x=abs_E, y=1:nrow(merge_una), col=f)) + geom_point() + ggtitle("Undegraded with Nanocount- ENST00000084795.9") + theme_bw() + scale_x_continuous(limits = c(0,125))+ scale_y_continuous(limits = c(0,16000))
+```
+
+
+
+
+
+
+##############################################################################################
+getting the number of reads that have the particular 3' end
+```{r warning=FALSE, message=FALSE}
+test <- udeg_filter %>% 
+  dplyr::group_by(ReadLen) %>% 
+  mutate(number=n())
+```
+
+Sliding window 
+```{r warning=FALSE, message=FALSE}
+T <- test4[["number"]]
+size <- 10
+slidingwindow <- lapply(0:(length(T)-size+1), function(x){c(x:(x+size))})
+slidingwindow
+```
+
+
+
+
+

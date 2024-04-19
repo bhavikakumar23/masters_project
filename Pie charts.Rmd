@@ -1,0 +1,173 @@
+---
+title: "Pie charts"
+author: "Bhavika Kumar"
+date: "2023-05-29"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+Undegraded
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(86.37, 13.62))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(71.8, 28.19))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()+
+  geom_text(aes(label=Percent), position = position_stack(vjust = 0.5))
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()+
+  geom_text(aes(label=Percent), position = position_stack(vjust = 0.5))
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Undegraded", color = "blue", face = "bold", size = 14))
+```
+
+Heavy Degraded
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(74.64, 25.35))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(75.88, 24.11))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()+geom_text(aes(label=Percent), position = position_stack(vjust = 0.5))
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()+geom_text(aes(label=Percent), position = position_stack(vjust = 0.5))
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Heavy Degraded", color = "blue", face = "bold", size = 14))
+```
+
+Tissue-Human FC
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(76.07, 23.92))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(66.43, 33.56))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Tissue-Human FC- RIN (6.1)", color = "blue", face = "bold", size = 14))
+```
+
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(81.83, 18.16))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(57.74, 42.25))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Tissue-Human FC- RIN (7.8)", color = "blue", face = "bold", size = 14))
+```
+
+Rat FC
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(76.74, 23.25))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(46.8, 53.19))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Tissue-Rat FC- RIN (6.7)", color = "blue", face = "bold", size = 14))
+```
+
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(80.95, 19.04))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(45.10, 54.89))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Tissue-Rat FC- RIN (8.3)", color = "blue", face = "bold", size = 14))
+```
+
+Rat-Cerebellum
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(81.88, 18.11))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(46.77, 53.22))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Tissue-Rat Cerebellum- RIN (7.0)", color = "blue", face = "bold", size = 14))
+```
+
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(85.91, 14.08))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(39.83, 60.16))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Tissue-Rat Cerebellum- RIN (8.4)", color = "blue", face = "bold", size = 14))
+```
+
+Rat liver
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(90.24, 9.75))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(43.52, 56.47))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Tissue-Rat Liver- RIN (8.5)", color = "blue", face = "bold", size = 14))
+```
+
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(89.65, 10.34))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(42.73, 57.26))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Tissue-Rat Liver- RIN (8.9)", color = "blue", face = "bold", size = 14))
+```
+
+Human skeletal muscle
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(86.07, 13.92))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(56.68, 43.31))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Tissue-Human Skeletal Muscle- RIN (7.4)", color = "blue", face = "bold", size = 14))
+```
+
+```{r}
+df1 <- data.frame(Type=c("Map", "Unmap"), Percent=c(83.48, 16.51))
+df2 <- data.frame(Map_Type=c("Multimap", "Unique"), Percent=c(53.06, 46.93))
+
+a <- ggplot(df1, aes(x=" ", y=Percent, fill=Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+theme_minimal()
+b <- ggplot(df2, aes(x=" ", y=Percent, fill=Map_Type)) + 
+  geom_bar(stat = "identity", width = 1)+ coord_polar(theta = "y", start = 0)+scale_fill_brewer(palette = "Blues")+theme_minimal()
+
+plot <- ggarrange(a,b, ncol=2, nrow=1)
+annotate_figure(plot, top = text_grob("Tissue-Human Skeletal Muscle- RIN (7.5)", color = "blue", face = "bold", size = 14))
+```

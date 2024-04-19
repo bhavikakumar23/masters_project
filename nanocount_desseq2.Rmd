@@ -1,0 +1,149 @@
+---
+title: "nanocount_desseq2"
+output: html_document
+date: "2023-05-16"
+editor_options: 
+  chunk_output_type: console
+---
+
+This script takes in the nanocount outputs (isoform counts files) and run deseq2 on them to see DETs.
+Comparison between both the replicates of undegraded and heavily degraded. 
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+})
+```
+
+loading nanocount isoform output files
+```{r warning=FALSE, message=FALSE}
+u1 <- read.table("/home/bhavika/Desktop/Nanograd/Data/nanocount_output/isoformCounts_undegraded_hek293_pass1.txt")
+u2 <- read.table("/home/bhavika/Desktop/Nanograd/Data/nanocount_output/isoformCounts_undegraded_hek293_pass2.txt")
+h1 <- read.table("/home/bhavika/Desktop/Nanograd/Data/nanocount_output/isoformCounts_5mM_MgCl_degrdation_pass1.txt")
+h2 <- read.table("/home/bhavika/Desktop/Nanograd/Data/nanocount_output/isoformCounts_5mM_MgCl_degrdation_pass2.txt")
+```
+
+Running deseq2 on nanocount isoform counts output
+
+Converting the third column to numeric type
+```{r warning=FALSE, message=FALSE}
+u1$est_count <- as.numeric(u1$V3)
+u2$est_count <- as.numeric(u2$V3)
+h1$est_count <- as.numeric(h1$V3)
+h2$est_count <- as.numeric(h2$V3)
+```
+
+Deleting the first row in all the data sets as it has the column names
+```{r warning=FALSE, message=FALSE}
+u1_1 <- u1[-1, ]
+u2_2 <- u2[-1, ]
+h1_1 <- h1[-1, ]
+h2_2 <- h2[-1, ]
+```
+
+Rounding the est_count column
+```{r warning=FALSE, message=FALSE}
+u1_1$round_est_count <- round(u1_1$est_count)
+u2_2$round_est_count <- round(u2_2$est_count)
+h1_1$round_est_count <- round(h1_1$est_count)
+h2_2$round_est_count <- round(h2_2$est_count)
+```
+
+Renaming the first column to Transcript
+```{r warning=FALSE, message=FALSE}
+colnames(u1_1)[1]="Transcript"
+colnames(u2_2)[1]="Transcript"
+colnames(h1_1)[1]="Transcript"
+colnames(h2_2)[1]="Transcript"
+```
+
+Selecting Transcript and round_est_count column and making a new column for condition
+```{r warning=FALSE, message=FALSE}
+udeg1 <- u1_1 %>% 
+  dplyr::select(Transcript, round_est_count)
+udeg1$condition="undegraded_1"
+
+udeg2 <- u2_2 %>% 
+  dplyr::select(Transcript, round_est_count)
+udeg2$condition="undegraded_2"
+
+hdeg1 <- h1_1 %>% 
+  dplyr::select(Transcript, round_est_count)
+hdeg1$condition <- "heavy_degraded_1"
+
+hdeg2 <- h2_2 %>% 
+  dplyr::select(Transcript, round_est_count)
+hdeg2$condition= "heavy_degraded_2"
+```
+
+Merging the data
+```{r warning=FALSE, message=FALSE}
+deg_1 <- merge(x=udeg1, y=hdeg1, all=T)
+deg_2 <- merge(x=udeg2, y=hdeg2, all=T)
+
+data_hu <- merge(x=deg_1, y=deg_2, all=T)
+```
+
+Converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data_hu[is.na(data_hu)]=0
+```
+
+Formatting the data and converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data <- pivot_wider(data_hu, names_from = condition, values_from = round_est_count)
+data[is.na(data)] <- 0
+```
+
+Constructing a deseq dataset object
+```{r warning=FALSE, message=FALSE}
+countData <- as.matrix(data)
+
+countData <- as.matrix(data[ ,-1])
+colnames(countData)=c("heavy_degraded_2", "heavy_degraded_1", "undegraded_2", "undegraded_1")
+rownames(countData)=data$Transcript
+
+colData <- data.frame(condition = factor(c("heavy", "heavy", "undegraded", "undegraded")))
+rownames(colData) <- c("heavy_degraded_2", "heavy_degraded_1", "undegraded_2", "undegraded_1")
+
+dds <- DESeqDataSetFromMatrix(countData = countData,
+                              colData = colData, 
+                              design = ~condition)
+```
+
+Running DESeq function
+```{r warning=FALSE, message=FALSE}
+dds <- DESeq(dds)
+```
+
+Results table
+```{r warning=FALSE, message=FALSE}
+res <- results(dds)
+head(results(dds))
+summary(res)
+```
+
+MA plot
+```{r warning=FALSE, message=FALSE}
+plotMA(res)
+```
+
+To get statistically significant transcripts
+```{r warning=FALSE, message=FALSE}
+res1 <- data.frame(res)
+
+sample <- res1 %>% 
+  filter(padj < 0.05)
+```
+
+There are 0 DET's found in the sample as nanocount assigns reads to the most appropriate transcript. So in case of proper assignment we get 0 DETs. 

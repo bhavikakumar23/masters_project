@@ -1,0 +1,257 @@
+---
+title: "parsing_cigar_distribution_plot"
+output: html_document
+date: "2023-07-24"
+editor_options: 
+  chunk_output_type: console
+---
+
+This script will parse cigar to get different lengths and will plot the distribution plot of read length for a particular transcript you want to explore!
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+})
+```
+
+loading data- add path to bam file
+```{r warning=FALSE, message=FALSE}
+bam_file <- scanBam("/home/bhavika/Desktop/Nanograd/Data/bam_files/all.undegraded_hek293_pass1.fastq.gz.sorted.bam")
+```
+
+Function for collapsing the list of lists into a single list as per the Rsamtools vignette
+```{r warning=FALSE, message=FALSE}
+.unlist <- function (x){
+  ## do.call(c, ...) coerces factor to integer, which is undesired
+  x1 <- x[[1L]]
+  if (is.factor(x1)){
+    structure(unlist(x), class = "factor", levels = levels(x1))
+  } else {
+    do.call(c, x)
+  }
+}
+```
+
+Store names of BAM fields
+```{r warning=FALSE, message=FALSE}
+bam_field <- names(bam_file[[1]])
+```
+
+go through each BAM field and unlist
+```{r warning=FALSE, message=FALSE}
+list <- lapply(bam_field, function(y) .unlist(lapply(bam_file, "[[", y)))
+```
+
+Storing the data as data frame
+```{r warning=FALSE, message=FALSE}
+bam_df <- do.call("DataFrame", list)
+names(bam_df) <- bam_field
+```
+
+converting bam_df into data frame without the package Rsamtools
+```{r warning=FALSE, message=FALSE}
+df <- as.data.frame(bam_df)
+```
+
+selecting columns required for analysis
+```{r warning=FALSE, message=FALSE}
+input <- df %>% 
+  dplyr::select(1,3,5,7,8,12) %>% 
+  dplyr::rename(Read = 1, Transcript = 2, StartCoord = 3, MapQ = 4, Cigar = 5, Sequence = 6)
+```
+
+## Parsing CIGAR- This matcher and doone function parses all the M, I, D and S in the full cigar string 
+
+Matcher function
+```{r warning=FALSE, message=FALSE}
+matcher <- function(pattern, x) {
+  ind = gregexpr(pattern, x)[[1]]
+  start = as.numeric(ind)
+  end = start + attr(ind, "match.length")- 2
+  apply(cbind(start,end), 1, function(y) substr(x, start=y[1], stop=y[2]));
+}
+```
+
+Doone function- This takes the sum of all the M, I, D and S
+```{r warning=FALSE, message=FALSE}
+doone <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  sum(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Finding Matches/Deletions/Insertions/Soft Clip
+1. Match
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("M")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates matches - applying cigarsums function to each row of the input to calculate the total mapped length
+```{r warning=FALSE, message=FALSE}
+addcig_1 <- input %>%
+  rowwise %>% mutate(MapLen = cigarsums(Cigar))
+```
+
+2. Deletion
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("D")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates deletions- we apply the cigarsums function to each row of the input to calculate the total length that is deleted
+```{r warning=FALSE, message=FALSE}
+addcig_2 <- input %>%
+  rowwise %>% mutate(DelLen = cigarsums(Cigar))
+```
+
+3. Insertion
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("I")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates insertions- applying cigarsums function to each row of the input to calculate the length that is inserted
+```{r warning=FALSE, message=FALSE}
+addcig_3 <- input %>%
+  rowwise %>% mutate(InsertLen = cigarsums(Cigar))
+```
+
+4. Soft clipping (S)
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone, Cigar)
+}
+```
+
+calculates Soft clip length- total sum on both the ends
+```{r warning=FALSE, message=FALSE}
+addcig_4 <- input %>%
+  rowwise %>% mutate(SoftClipLenSum = cigarsums(Cigar))
+```
+
+
+####  Calculating the max lens- max del len, max insert len and max soft clip len (can skip it if you don't require)
+
+Doone_1 function is calculating the max len in the string
+```{r warning=FALSE, message=FALSE}
+doone_1 <- function(c, Cigar) {
+  pat <- paste("\\d+", c , sep="")
+  max(as.numeric(matcher(pat, Cigar)), na.rm = T)
+}
+```
+
+Max del len
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("D")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_5 <- input %>% 
+  rowwise %>% mutate(MaxDelLen = cigarsums(Cigar))
+```
+
+Max insert len
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("I")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_6 <- input %>% 
+  rowwise %>% mutate(MaxInsertLen = cigarsums(Cigar))
+```
+
+Max soft clip len 
+```{r warning=FALSE, message=FALSE}
+cigarsums <- function(Cigar, chars=c("S")) {
+  sapply (chars, doone_1, Cigar)
+}
+```
+
+```{r warning=FALSE, message=FALSE}
+addcig_7 <- input %>% 
+  rowwise %>% mutate(MaxSoftClipLen = cigarsums(Cigar))
+```
+
+
+Merging all the addcig data frames into one data frame
+
+merge_cigar_sum has columns map, del and insert len with transcript, read, start coord, cigar and sequence columns
+```{r warning=FALSE, message=FALSE}
+merged_1 <- merge(x=addcig_1, y= addcig_2, all=T)
+merged_2 <- merge(x=addcig_3, y=addcig_4, all=T)
+merge_cigars_sum <- merge(x=merged_1, y=merged_2, all=T)
+```
+
+merge_cigar_max has columns max del, max insert and max soft clip len with transcript, read, start coord, cigar and sequence columns
+```{r warning=FALSE, message=FALSE}
+merged_3 <- merge(x=addcig_5, y=addcig_6, all=T)
+merged_cigar_max <- merge(x=addcig_7, y=merged_3, all=T)
+```
+
+merge_cigar has all the columns of both merge_cigar_sum and merge_cigar_max
+```{r warning=FALSE, message=FALSE}
+merge_cigar <- merge(x=merge_cigars_sum, y=merged_cigar_max, all=T)
+```
+
+Using merge_cigar below:
+
+calculating number of reads of each transcript
+```{r warning=FALSE, message=FALSE}
+parse_cigar_n <- merge_cigar %>% 
+  group_by(Transcript) %>% 
+  mutate(NReads=n()) %>% 
+  ungroup()
+```
+
+Function to calculate the 3' end coordinate
+```{r warning=FALSE, message=FALSE}
+parse_cigar_n$L <- parse_cigar_n$MapLen + parse_cigar_n$DelLen
+
+end_coord <- function(StartCoord, L) {
+  end <- StartCoord + L - 1
+  return(end)
+}
+```
+
+Calculating the end coordinate without soft clip (sc) row wise and making a new column in the data frame as end_without_sc
+```{r warning=FALSE, message=FALSE}
+set_1 <- parse_cigar_n %>% 
+  rowwise() %>% 
+  mutate(end_without_sc = end_coord(StartCoord, L))
+```
+
+Getting read length from seq column by taking the sum of map len, del len and insert len
+```{r warning=FALSE, message=FALSE}
+set_1$ReadLen <- set_1$MapLen + set_1$DelLen + set_1$InsertLen
+```
+
+Filtering transcript- replace the transcript
+```{r warning=FALSE, message=FALSE}
+filter1 <- set_final %>% 
+  filter(Transcript=="ENST00000361381.2")
+```
+
+Distribution of Read lens- this is in log scale with limits, can be excluded if not required. Replace the transcript with your transcript in the ggtitle
+```{r warning=FALSE, message=FALSE}
+ggplot(filter1, aes(x=ReadLen)) + geom_histogram(binwidth = 1, col="blue") + theme_bw() + labs(x="Read Length") + ggtitle("Read Length Distribution- ENST00000361381.2") + scale_y_log10(limit=c(1,100)) + xlim(300,1500)
+```
+
+
