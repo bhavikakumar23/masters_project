@@ -1,0 +1,331 @@
+---
+title: "differential_transcript_expression"
+output: html_document
+date: "2023-05-10"
+editor_options: 
+  chunk_output_type: console
+---
+
+This script is for differential transcript expression using Deseq2. 
+Comparison between both the replicates of undegraded and heavily degraded samples. 
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+  library(edgeR)
+  library(coriell)
+})
+```
+
+Without nanocount
+```{r warning=FALSE, message=FALSE}
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep1.csv")
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep1.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/udeg_rep2.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_before_filtering/hdeg_rep2.csv")
+```
+
+With nanocount Data
+```{r warning=FALSE, message=FALSE}
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/udeg_rep1_nano.csv")
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/hdeg_rep1_nano.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/udeg_rep2_nano.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/nanocount_output_bh/hdeg_rep2_nano.csv")
+```
+
+Without nanocount + filtering (indels + 3' end)
+```{r warning=FALSE, message=FALSE}
+udeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/udeg_rep1_all_filtering.csv")
+hdeg_rep1 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/hdeg_rep1_all_filtering.csv")
+
+udeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/udeg_rep2_all_filtering.csv")
+hdeg_rep2 <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/Undeg_Hdeg_all_filtering/hdeg_rep2_all_filtering.csv")
+```
+
+adding the name of the condition column in all the datasets
+```{r warning=FALSE, message=FALSE}
+u1$condition <- "undegraded_1"
+h1$condition <- "heavy_degraded_1"
+u2$condition <- "undegraded_2"
+h2$condition <- "heavy_degraded_2"
+```
+
+selecting the required columns
+```{r warning=FALSE, message=FALSE}
+udeg_1 <- u1 %>% 
+  dplyr::select(Transcript, condition)
+hdeg_1 <- h1 %>% 
+  dplyr::select(Transcript, condition)
+udeg_2 <- u2 %>% 
+  dplyr::select(Transcript, condition)
+hdeg_2 <- h2 %>% 
+  dplyr::select(Transcript, condition)
+```
+
+Grouping the data by transcripts and then find the number of reads of each transcript and reading the column condition as to calculate number of reads using summarise command
+```{r warning=FALSE, message=FALSE}
+ugrp1 <- udeg_1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+ugrp1$condition <- "undegraded_1"
+
+hgrp1 <- hdeg_1 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+hgrp1$condition <- "heavy_degraded_1"
+
+ugrp2 <- udeg_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+ugrp2$condition <- "undegraded_2"
+
+hgrp2 <- hdeg_2 %>% 
+  dplyr::group_by(Transcript) %>% 
+  summarise(nreads=n())
+hgrp2$condition <- "heavy_degraded_2"
+```
+
+Merging the data to get one dataset for all the number of reads of each transcript in each condition
+```{r warning=FALSE, message=FALSE}
+deg_1 <- merge(x=ugrp1, y=hgrp1, all=T)
+deg_2 <- merge(x=ugrp2, y=hgrp2, all=T)
+
+data_hu <- merge(x=deg_1, y=deg_2, all=T)
+```
+
+Converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data_hu[is.na(data_hu)]=0
+```
+
+Formatting the data as required by deseq2 and converting NA's to zero
+```{r warning=FALSE, message=FALSE}
+data <- pivot_wider(data_hu, names_from = condition, values_from = nreads)
+data[is.na(data)] <- 0
+```
+
+Converting data to matrix
+```{r warning=FALSE, message=FALSE}
+countData <- as.matrix(data[ ,-1])
+colnames(countData)=c("heavy_degraded_2", "heavy_degraded_1", "undegraded_2", "undegraded_1")
+rownames(countData)=data$Transcript
+```
+
+Filtering matrix to keep transcripts that have greater than 5 reads in at least two conditions
+```{r warning=FALSE, message=FALSE}
+keep1 <- rowSums(countData > 5) >=2
+countData <- countData[keep1,]
+```
+
+data frame of only the name of the condition. It is important to keep the columns of the count matrix and rows of column data exactly same. 
+```{r warning=FALSE, message=FALSE}
+colData <- data.frame(condition = factor(c("heavy", "heavy", "undegraded", "undegraded")))
+rownames(colData) <- c("heavy_degraded_2", "heavy_degraded_1", "undegraded_2", "undegraded_1")
+```
+
+Constructing the deseq dataset
+```{r warning=FALSE, message=FALSE}
+dds <- DESeqDataSetFromMatrix(countData = countData,
+                              colData = colData, 
+                              design = ~condition)
+```
+
+Running DESeq function
+```{r warning=FALSE, message=FALSE}
+dds <- DESeq(dds)
+```
+
+Results table
+```{r warning=FALSE, message=FALSE}
+res <- results(dds)
+summary(res)
+
+res[which(res$log2FoldChange > 1 & res$padj < 0.05),]
+```
+
+MA plots
+```{r warning=FALSE, message=FALSE}
+plotMA(res, alpha=0.05)
+
+plotMA(res, main="Undegraded vs Heavy degraded with indels and 3' end filtering", cex.lab=1.2)
+```
+
+Another approach to make MA plot
+```{r warning=FALSE, message=FALSE}
+sum(is.na(res$log2FoldChange))
+
+iv.sig <- res$padj < 0.05
+
+iv.up <- res$log2FoldChange > 1 & iv.sig
+iv.dn <- res$log2FoldChange < -1 & iv.sig
+
+plot(log2(res$baseMean + 1), res$log2FoldChange, pch=20, col="grey",
+     main="Non-degraded vs Heavily degraded", xlab="log2(baseMean)", ylab="log2FC", ylim=c(-4,4))
+points(log2(res$baseMean + 1)[iv.up], res$log2FoldChange[iv.up], col="red", pch=20)
+points(log2(res$baseMean + 1)[iv.dn], res$log2FoldChange[iv.dn], col="green", pch=20)
+abline(h=0)
+```
+
+
+
+Volcano plots
+converting result to data frame and adding another column of differential expressed transcripts and then creating a volcano plot
+
+Without nanocount
+```{r warning=FALSE, message=FALSE}
+# for help in making volcano plot
+res <- results(dds,tidy = TRUE)  # adding column name to the transcript ID column
+head(results(dds))
+summary(res)
+
+# to help in making volcano plot
+res_without_nano <- data.frame(res)
+colnames(res_without_nano)[1] <- "transcript"
+
+res_without_nano$diffexpressed <- "NO"
+res_without_nano$diffexpressed[res_without_nano$log2FoldChange > 1 & res_without_nano$padj < 0.05] <- "UP"
+res_without_nano$diffexpressed[res_without_nano$log2FoldChange < -1 & res_without_nano$padj < 0.05] <- "DOWN"
+
+head(res_without_nano[order(res_without_nano$padj) & res_without_nano$diffexpressed=="UP", ])
+
+res_without_nano$label <- ifelse(res_without_nano$transcript %in% head(res_without_nano[order(res_without_nano$padj), "transcript"], 60), res_without_nano$transcript, NA)
+
+ggplot(data = res_without_nano, aes(x=log2FoldChange, y=-log10(padj), col=diffexpressed)) + 
+  geom_vline(xintercept = c(-1,1), col="gray", linetype="dashed")+
+  geom_hline(yintercept = -log10(0.05), col="gray", linetype="dashed")+
+  geom_point(size=2)+
+  scale_color_manual(values = c("green", "grey", "red"), 
+                     labels=c("Downregulated", "Not significant", "Upregulated")) + 
+  coord_cartesian(ylim=c(0,20), xlim=c(-5,5)) +
+  labs(color="Differentially expressed", x=expression("log"[2]*"FC"), y=expression("-log"[10]*"adj p-value")) + theme_bw() + ggtitle("Volcano Plot") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))
+```
+
+Get number of upregulated and downregulated transcripts
+```{r warning=FALSE, message=FALSE}
+c <- res_without_nano %>% 
+  filter(diffexpressed=="UP")
+b <- res_without_nano %>% 
+  filter(diffexpressed=="DOWN")
+
+filt2 <- res_without_nano %>% 
+  filter(diffexpressed=="UP" | diffexpressed=="DOWN")
+```
+
+With nanocount
+```{r warning=FALSE, message=FALSE}
+# for help in making volcano plot
+res <- results(dds,tidy = TRUE)  # adding column name to the transcript ID column
+head(results(dds))
+summary(res)
+
+res_with_nano <- data.frame(res)
+colnames(res_with_nano)[1] <- "transcript"
+
+res_with_nano$diffexpressed <- "NO"
+res_with_nano$diffexpressed[res_with_nano$log2FoldChange > 1 & res_with_nano$padj < 0.05] <- "UP"
+res_with_nano$diffexpressed[res_with_nano$log2FoldChange < -1 & res_with_nano$padj < 0.05] <- "DOWN"
+
+head(res_with_nano[order(res_with_nano$padj) & res_with_nano$diffexpressed=="UP", ])
+
+res_with_nano$label <- ifelse(res_with_nano$transcript %in% head(res_with_nano[order(res_with_nano$padj), "transcript"], 60), res_with_nano$transcript, NA)
+
+ggplot(data = res_with_nano, aes(x=log2FoldChange, y=-log10(padj), col=diffexpressed)) + 
+  geom_vline(xintercept = c(-1,1), col="gray", linetype="dashed")+
+  geom_hline(yintercept = -log10(0.05), col="gray", linetype="dashed")+
+  geom_point(size=2)+
+  scale_color_manual(values = c("green", "grey", "red"), 
+                     labels=c("Downregulated", "Not significant", "Upregulated")) + 
+  coord_cartesian(ylim=c(0,20), xlim=c(-5,5)) +
+  labs(color="Differentially expressed", x=expression("log"[2]*"FC"), y=expression("-log"[10]*"adj p-value")) + theme_bw()
+```
+
+Get number of upregulated and downregulated transcripts
+```{r warning=FALSE, message=FALSE}
+a <- res_with_nano %>% 
+  filter(diffexpressed=="UP")
+b <- res_with_nano %>% 
+  filter(diffexpressed=="DOWN")
+```
+
+Without nanocount + filtering
+```{r warning=FALSE, message=FALSE}
+# for help in making volcano plot
+res <- results(dds,tidy = TRUE)  # adding column name to the transcript ID column
+head(results(dds))
+summary(res)
+
+res_without_nano_f <- data.frame(res)
+colnames(res_without_nano_f)[1] <- "transcript"
+
+res_without_nano_f$diffexpressed <- "NO"
+res_without_nano_f$diffexpressed[res_without_nano_f$log2FoldChange > 1 & res_without_nano_f$padj < 0.05] <- "UP"
+res_without_nano_f$diffexpressed[res_without_nano_f$log2FoldChange < -1 & res_without_nano_f$padj < 0.05] <- "DOWN"
+
+head(res_without_nano_f[order(res_without_nano_f$padj) & res_without_nano_f$diffexpressed=="UP", ])
+
+res_without_nano_f$label <- ifelse(res_without_nano_f$transcript %in% head(res_without_nano_f[order(res_without_nano_f$padj), "transcript"], 60), res_without_nano_f$transcript, NA)
+
+ggplot(data = res_without_nano_f, aes(x=log2FoldChange, y=-log10(padj), col=diffexpressed)) + 
+  geom_vline(xintercept = c(-1,1), col="gray", linetype="dashed")+
+  geom_hline(yintercept = -log10(0.05), col="gray", linetype="dashed")+
+  geom_point(size=2)+
+  scale_color_manual(values = c("green", "grey", "red"), 
+                     labels=c("Downregulated", "Not significant", "Upregulated")) + 
+  coord_cartesian(ylim=c(0,20), xlim=c(-5,5)) +
+  labs(color="Differentially expressed", x=expression("log"[2]*"FC"), y=expression("-log"[10]*"adj p-value")) + theme_bw() + ggtitle("Volcano Plot") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))
+```
+
+Get number of upregulated and downregulated transcripts
+```{r warning=FALSE, message=FALSE}
+f <- res_without_nano_f %>% 
+  filter(diffexpressed=="UP")
+e <- res_without_nano_f %>% 
+  filter(diffexpressed=="DOWN")
+```
+
+#############################################################################
+
+Exploring the res_without_nano and res_without_nano_f datasets
+
+separating the transcripts that are not there in res_without_nano_f
+```{r warning=FALSE, message=FALSE}
+not <- res_without_nano[!(res_without_nano$Transcript %in% res_without_nano_f$Transcript),]
+```
+
+merging the 'not' data to the undeg data (after filtering) to see if we have all the transcripts in the 'not' data. 
+```{r warning=FALSE, message=FALSE}
+merged1 <- merge(x=not, y=udeg_all_filtering, by="Transcript")
+merged2 <- merge(x=not, y=hdeg_all_filtering, by="Transcript")
+```
+
+Read length distribution of those 2723 transcripts
+```{r warning=FALSE, message=FALSE}
+ggplot(merged1, aes(x=new_ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Read length distribution of 2723 tx-non-degraded") + theme_bw() + labs(x="Read Length", y="Number of Reads") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))
+
+ggplot(merged2, aes(x=new_ReadLen)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("Read length distribution of 2651 tx-heavily-degraded") + theme_bw() + labs(x="Read Length", y="Number of Reads") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))
+```
+
+use merged1 with udeg_rep1_txlen to get transcript lengths 
+```{r}
+merged3 <- merge(x=merged1, y=udeg_rep1_txlen, by="Transcript")
+merged4 <- merge(x=merged2, y=hdeg_rep1_txlen, by="Transcript")
+merged3$Transcript_len <- as.numeric(as.character(merged3$Transcript_len))
+merged4$Transcript_len <- as.numeric(as.character(merged4$Transcript_len))
+
+ggplot(merged3, aes(x=Transcript_len)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("TL of 2723 transcripts") + theme_bw() + labs(x="Transcript Length", y="count") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))
+
+ggplot(merged4, aes(x=Transcript_len)) + geom_histogram(binwidth = 1, col="blue") + ggtitle("TL of 2651 transcripts") + theme_bw() + labs(x="Transcript Length", y="count") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + xlim(0,30000)
+```
+
