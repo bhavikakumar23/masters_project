@@ -1,0 +1,33 @@
+---
+title: "Untitled"
+author: "Bhavika Kumar"
+date: "2023-11-08"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r}
+df <- data.frame(percent=c("85.91", "81.88", "14.08","18.11"),
+                 map_no=c("map", "map", "non_map", "non_map"),
+                 rin=c("8.4", "7.0", "8.4", "7.0"))
+
+ggplot(df, aes(x=rin, y=percent, fill=map_no))+ geom_bar(stat = "identity", position = "dodge") + theme_bw() + ggtitle("Map and Non-map percentage") + labs(x="RIN", y="Percentage") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold"))
+
+df1 <- data.frame(percent=c("39.83", "46.77", "60.16", "53.22"),
+                  multi_unique=c("multimap", "multimap", "unique", "unique"), 
+                  rin=c("8.4", "7.0", "8.4", "7.0"))
+
+ggplot(df1, aes(x=rin, y=percent, fill=multi_unique))+ geom_bar(stat = "identity", position = "dodge") + theme_bw() + ggtitle("Multimap and unique map percentage") + labs(x="RIN", y="Percentage") + theme(axis.text=element_text(size=16), axis.title=element_text(size=18)) + theme(plot.title = element_text(size=18, face = "bold")) + scale_fill_brewer(palette = "Dark2")
+```
+
+chi square test
+```{r}
+df2 <- data.frame(rin=c("7.0", "8.4"),
+                  map=c(81.88, 85.91),
+                  non_map=c(18.11, 14.08))
+```
+
+Mann-whitney test 
+1. between rin and the read length 
+
