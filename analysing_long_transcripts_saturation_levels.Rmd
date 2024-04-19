@@ -1,0 +1,147 @@
+---
+title: "analysing_long_transcripts_saturation"
+output: html_document
+date: "2023-08-01"
+editor_options: 
+  chunk_output_type: console
+---
+
+Finding saturation levels, plotting read lengths for long transcripts which were selected earlier. 
+
+Loading Libraries
+```{r warning=FALSE, message=FALSE}
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(GenomicFeatures)
+  library(rtracklayer)
+  library(dplyr)
+  library(Rsamtools)
+  library(glmnet)
+  library(ggpubr)
+  library(visreg)
+  library(DESeq2)
+  library(apeglm)
+})
+```
+
+Loading data
+```{r warning=FALSE, message=FALSE}
+hdeg_normal <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/heavily_degraded.csv")
+hdeg_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/primary_align_nano_hdeg_pass1.csv")
+
+udeg_normal <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/undegraded.csv")
+udeg_nano <- read.csv("/home/bhavika/Desktop/Nanograd/Data_2/primary_align_nano_udeg_pass1.csv")
+```
+
+Selecting required column
+```{r warning=FALSE, message=FALSE}
+test_1hno <- hdeg_normal %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc)
+test_1uno <- udeg_normal %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc)
+
+test_1hna <- hdeg_nano %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc)
+test_1una <- udeg_nano %>% 
+  dplyr::select(Read, Transcript, ReadLen, end_without_sc)
+```
+
+Filtering transcripts
+```{r warning=FALSE, message=FALSE}
+test_filter_hno <- test_1hno %>% 
+  filter(Transcript=="ENST00000344063.7")
+test_filter_uno <- test_1uno %>% 
+  filter(Transcript=="ENST00000344063.7")
+
+test_filter_hna <- test_1hna %>% 
+  filter(Transcript=="ENST00000344063.7")
+test_filter_una <- test_1una %>% 
+  filter(Transcript=="ENST00000344063.7")
+```
+
+distribution plot of the 3' ends - histogram
+```{r warning=FALSE, message=FALSE}
+ggplot(test_filter_hno, aes(x=end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + labs(x="3' end without sc") + ggtitle("Hdeg-ENST00000344063.7") + theme_bw()
+
+ggplot(test_filter_uno, aes(x=end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + labs(x="3' end without sc") + ggtitle("Udeg-ENST00000344063.7") + theme_bw()
+
+ggplot(test_filter_hna, aes(x=end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + labs(x="3' end without sc") + ggtitle("Hdeg with Nano-ENST00000361575.4") + theme_bw()
+
+ggplot(test_filter_una, aes(x=end_without_sc)) + geom_histogram(binwidth = 1, col="blue") + labs(x="3' end without sc") + ggtitle("Udeg with Nano-ENST00000361575.4") + theme_bw()
+```
+
+Ordering the 3' end column and calculating the frequency of each 3' end
+```{r warning=FALSE, message=FALSE}
+test_order_hno <- test_filter_hno[order(test_filter_hno$end_without_sc, decreasing = TRUE),]
+test_order_uno <- test_filter_uno[order(test_filter_uno$end_without_sc, decreasing = TRUE),]
+test_order_hna <- test_filter_hna[order(test_filter_hna$end_without_sc, decreasing = TRUE),]
+test_order_una <- test_filter_una[order(test_filter_una$end_without_sc, decreasing = TRUE),]
+
+test_2hno <- test_order_hno %>% 
+  group_by(end_without_sc) %>% 
+  mutate(number=n())
+test_2uno <- test_order_uno %>% 
+  group_by(end_without_sc) %>% 
+  mutate(number=n())
+
+test_2hna <- test_order_hna %>% 
+  group_by(end_without_sc) %>% 
+  mutate(number=n())
+test_2una <- test_order_una %>% 
+  group_by(end_without_sc) %>% 
+  mutate(number=n())
+```
+
+Taking the cumulative sum of the frequency 
+Undegraded- without nanocount
+```{r warning=FALSE, message=FALSE}
+test_2uno$cum <- cumsum(test_2uno$number)
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+test_2uno$dif <- p(diff(test_2uno$cum, lag=20), length(test_2uno$cum))
+test_2uno$dif[is.na(test_2uno$dif)] <- 0
+
+test_2uno$saturation <- test_2uno$end_without_sc[which.max(test_2uno$dif)] + 20
+```
+
+Undegraded- with nanocount
+```{r warning=FALSE, message=FALSE}
+test_2una$cum <- cumsum(test_2una$number)
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+test_2una$dif <- p(diff(test_2una$cum, lag=20), length(test_2una$cum))
+test_2una$dif[is.na(test_2una$dif)] <- 0
+
+test_2una$saturation <- test_2una$end_without_sc[which.max(test_2una$dif)] + 20
+```
+
+Heavy degraded- without Nanocount
+```{r warning=FALSE, message=FALSE}
+test_2hno$cum <- cumsum(test_2hno$number)
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+test_2hno$dif <- p(diff(test_2hno$cum, lag=20), length(test_2hno$cum))
+test_2hno$dif[is.na(test_2hno$dif)] <- 0
+
+test_2hno$saturation <- test_2hno$end_without_sc[which.max(test_2hno$dif)] + 20
+```
+
+Heavy degraded- with Nanocount
+```{r warning=FALSE, message=FALSE}
+test_2hna$cum <- cumsum(test_2hna$number)
+p <- function(x,n){
+  len.diff <- n - length(x)
+  c(rep(NA, len.diff), x)
+}
+test_2hna$dif <- p(diff(test_2hna$cum, lag=20), length(test_2hna$cum))
+test_2hna$dif[is.na(test_2hna$dif)] <- 0
+
+test_2hna$saturation <- test_2hna$end_without_sc[which.max(test_2hna$dif)] + 20
+```
+
